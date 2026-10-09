@@ -3,9 +3,9 @@ from pathlib import Path
 import git
 from git import InvalidGitRepositoryError, NoSuchPathError
 
-from azure.core.exceptions import AzureError
+from azure.core.exceptions import AzureError, ResourceExistsError
 from azure.storage.blob import BlobServiceClient
-DEFAULT_CONTAINER = "Temp_Container"
+DEFAULT_CONTAINER = "git-backup"
 
 def init_repo(repo_path: str) -> git.Repo:
     path = Path(repo_path).resolve()
@@ -153,19 +153,45 @@ def push_git(
     connection_string: str,
     key: str,
     container_name: str = DEFAULT_CONTAINER,
-) -> bool:
+    ) -> int:
+    """
+    Upload the target repository's .git folder to Azure Blob Storage.
 
+    Args:
+        repo_path: Path to the target Git repository.
+        connection_string: Azure Storage connection string.
+        key: Prefix used to identify this repository in blob storage.
+        container_name: Azure Blob container name.
+
+    Returns:
+        Number of uploaded files.
+    """
+    if not connection_string.strip():
+        raise ValueError("Azure connection string cannot be empty.")
+
+    if not key.strip():
+        raise ValueError("Azure storage key cannot be empty.")
 
     repo = Path(repo_path).resolve()
     git_directory = repo / ".git"
 
+    if not repo.exists() or not repo.is_dir():
+        raise FileNotFoundError(f"Repository path does not exist: {repo}")
+
+    if not git_directory.exists() or not git_directory.is_dir():
+        raise ValueError(f"Git directory does not exist: {git_directory}")
 
     blob_service = BlobServiceClient.from_connection_string(connection_string)
     container_client = blob_service.get_container_client(container_name)
-    container_client.create_container(exist_ok=True)
+    try:
+        container_client.create_container()
+    except ResourceExistsError:
+        # The container already exists, so it is ready for blob uploads.
+        pass
 
     blob_prefix = key.strip("/")
 
+    uploaded_files = 0
 
     for file_path in git_directory.rglob("*"):
         if not file_path.is_file():
@@ -181,7 +207,10 @@ def push_git(
                 overwrite=True,
             )
 
-    return True
+        uploaded_files += 1
+
+    return uploaded_files
+
 
 def get_git(
     repo_path: str,

@@ -13,11 +13,14 @@ from pathlib import Path
 from importance import calculate_importance
 
 from helper import commit_changes, should_commit
-from driver import init_repo, get_repo
+from driver import init_repo, get_repo , push_git
 
-repo_path = "ENTER YOUR TARGET REPO PATH HERE"  # Replace with the actual path to your Git repository
-AZURE_STRING = "ENTER YOUR AZURE STORAGE CONNECTION STRING HERE"  # Replace with your Azure Storage connection string
-AZURE_KEY = "honeygate"
+repo_path = "C:\\Users\\aksha\\Downloads\\HACKATHON\\Tathack-DedSec\\" \
+    "" \
+    "workspace"  # Replace with the actual path to your Git repository
+AZURE_STRING = "DefaultEndpointsProtocol=https;AccountName=honeygate;AccountKey=7o8jwRu3XNl91" \
+"dKVoM683/qf1V38QbkrH/SB6PV2OWNXI5xRTqbp27kpfHKofsyOcAMMXlJx69xF+AStdre0Fw==;EndpointSuffix=core.windows.net"  # Replace with your Azure Storage connection string
+AZURE_KEY = "7o8jwRu3XNl91dKVoM683/qf1V38QbkrH/SB6PV2OWNXI5xRTqbp27kpfHKofsyOcAMMXlJx69xF+AStdre0Fw=="
 
 
 BASE = Path(__file__).resolve().parent
@@ -444,6 +447,8 @@ def _execute_tool(name, arguments):
             commit_message = f"{operation.capitalize()} {target_name}"
             git_hash = commit_changes(importance_score, repo, commit_message)
             result["git_commit_hash"] = git_hash
+            push_git(connection_string=AZURE_STRING, key = AZURE_KEY,repo_path = repo_path)
+            
     except Exception as git_error:
         print(f"\n--- GIT ERROR ---\n{git_error}\n-----------------\n")
         result["git_error"] = str(git_error)
