@@ -5,8 +5,6 @@ MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
 
 helper = pipeline("text-generation", model=MODEL_NAME , device_map="auto")
 
-
-
 def suggest_checkpoint_marks(agent_id, thinking_text, available_functions):
     messages = [
         {
