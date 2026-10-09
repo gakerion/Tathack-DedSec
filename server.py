@@ -22,17 +22,47 @@ def get_checkpoints():
         print(checkpoints)
         return {"checkpoints": deepcopy(checkpoints), "history_persistent": False}
     
-
 @app.post("/chat")
-def prompt(prompt: str = Form(...), file: UploadFile | None = File(None)):
+def prompt(
+    prompt: str = Form(...),
+    file: UploadFile | None = File(None),
+):
+    file_content = None
+    file_name = None
+
     if file is not None:
-        file.file.close()
-        raise HTTPException(status_code=422, detail="File attachments are not supported yet.")
+        try:
+            raw = file.file.read(12_001)
+        finally:
+            file.file.close()
+
+        if len(raw) > 12_000:
+            raise HTTPException(
+                status_code=413,
+                detail="Text attachment must be 12 KB or smaller.",
+            )
+
+        try:
+            file_content = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raise HTTPException(
+                status_code=422,
+                detail="Only UTF-8 text files are supported.",
+            )
+
+        file_name = file.filename or "attachment.txt"
+
     if not prompt.strip():
-        raise HTTPException(status_code=422, detail="Prompt must not be blank.")
-    
+        raise HTTPException(
+            status_code=422,
+            detail="Prompt must not be blank.",
+        )
     with model_lock:
-        packet = run_ollama_test(prompt)
+        packet = run_ollama_test(
+        prompt,
+        file_content=file_content,
+        file_name=file_name,
+        )
         group = {"prompt": prompt, "commits": [], "actions": packet["actions"]}
         for action in packet["actions"]:
             if action["status"] == "executed" and "checkpoint_id" in action:
