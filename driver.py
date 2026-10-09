@@ -3,6 +3,9 @@ from pathlib import Path
 import git
 from git import InvalidGitRepositoryError, NoSuchPathError
 
+from azure.core.exceptions import AzureError
+from azure.storage.blob import BlobServiceClient
+DEFAULT_CONTAINER = "Temp_Container"
 
 def init_repo(repo_path: str) -> git.Repo:
     path = Path(repo_path).resolve()
@@ -101,3 +104,38 @@ def get_history(repo: git.Repo, limit: int = 20) -> list[dict[str, str]]:
         }
         for commit in repo.iter_commits(max_count=limit)
     ]
+
+def push_git(
+    repo_path: str,
+    connection_string: str,
+    key: str,
+    container_name: str = DEFAULT_CONTAINER,
+) -> int:
+
+
+    repo = Path(repo_path).resolve()
+    git_directory = repo / ".git"
+
+
+    blob_service = BlobServiceClient.from_connection_string(connection_string)
+    container_client = blob_service.get_container_client(container_name)
+    container_client.create_container(exist_ok=True)
+
+    blob_prefix = key.strip("/")
+
+
+    for file_path in git_directory.rglob("*"):
+        if not file_path.is_file():
+            continue
+
+        relative_path = file_path.relative_to(git_directory).as_posix()
+        blob_name = f"{blob_prefix}/{relative_path}"
+
+        with file_path.open("rb") as file_data:
+            container_client.upload_blob(
+                name=blob_name,
+                data=file_data,
+                overwrite=True,
+            )
+
+    return True

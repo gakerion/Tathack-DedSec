@@ -8,6 +8,10 @@ from importance import calculate_importance
 import hashlib
 import uuid
 
+repo_path = "ENTER YOUR TARGET REPO PATH HERE"  # Replace with the actual path to your Git repository
+AZURE_STRING = "DefaultEndpointsProtocol=https;AccountName=honeygate;AccountKey=7o8jwRu3XNl91dKVoM683/qf1V38QbkrH/SB6PV2OWNXI5xRTqbp27kpfHKofsyOcAMMXlJx69xF+AStdre0Fw==;EndpointSuffix=core.windows.net"  # Replace with your Azure Storage connection string
+AZURE_KEY = "honeygate"
+
 BASE = Path(__file__).resolve().parent
 WORKSPACE = BASE / "workspace"
 CHECKPOINTS = BASE / "checkpoints"
