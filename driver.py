@@ -39,11 +39,26 @@ def get_repo_status(repo: git.Repo) -> str:
     return repo.git.status("--short", "--branch")
 
 
-def get_repo_diff(repo: git.Repo, staged: bool = False) -> str:
-    if staged:
-        return repo.git.diff("--cached")
+def get_commit_diff(
+    repo: git.Repo,
+    first_commit: str,
+    second_commit: str,
+) -> str:
+    if not first_commit.strip() or not second_commit.strip():
+        raise ValueError("Both commit references are required.")
 
-    return repo.git.diff()
+    try:
+        first = repo.commit(first_commit.strip())
+        second = repo.commit(second_commit.strip())
+    except (git.BadName, git.BadObject) as error:
+        raise ValueError("One or both commit references are invalid.") from error
+
+    return repo.git.diff(
+        "--no-ext-diff",
+        "--no-color",
+        first.hexsha,
+        second.hexsha,
+    )
 
 
 def stage_files(repo: git.Repo, file_paths: list[str]) -> None:
@@ -51,11 +66,6 @@ def stage_files(repo: git.Repo, file_paths: list[str]) -> None:
         raise ValueError("At least one file path is required.")
 
     repo.index.add(file_paths)
-
-
-def stage_all(repo: git.Repo) -> None:
-    repo.index.add(all=True)
-    return None
 
 
 def stage_all(repo: git.Repo) -> None:
