@@ -105,6 +105,7 @@ def get_history(repo: git.Repo, limit: int = 20) -> list[dict[str, str]]:
         for commit in repo.iter_commits(max_count=limit)
     ]
 
+
 def push_git(
     repo_path: str,
     connection_string: str,

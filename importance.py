@@ -1,4 +1,7 @@
-import math,json
+import math
+import json
+import driver
+
 
 OPERATION_SEVERITY = {
     "read": 0.0,
@@ -17,14 +20,12 @@ EXTERNAL_IMPACT = {
     "unknown": 1.0,
 }
 
-
 def calculate_recovery(
     backup_verified=False,
     automatic_restore_supported=False,
     manual_restore_supported=False,
     reversible=True,
 ):
-
     if not reversible:
         return {"status": "unavailable", "value": 1.0}
 
@@ -40,23 +41,20 @@ def calculate_recovery(
 def calculate_importance(
     operation,
     affected_count,
-    impact="unknown",
+    impact="local",
     backup_verified=False,
     automatic_restore_supported=False,
     manual_restore_supported=False,
     reversible=True,
     scope_threshold=10,
 ):
-    if operation not in OPERATION_SEVERITY:
+    if operation not in OPERATION_SEVERITY or impact not in EXTERNAL_IMPACT:
         return 0
 
-    if impact not in EXTERNAL_IMPACT:
-        return 0
-    
     if (
-        type(affected_count) is not int
+        not isinstance(affected_count, (int, float))
         or affected_count < 0
-        or type(scope_threshold) is not int
+        or not isinstance(scope_threshold, (int, float))
         or scope_threshold < 1
     ):
         raise ValueError("Invalid resource count or scope threshold.")
@@ -81,16 +79,37 @@ def calculate_importance(
         "E": EXTERNAL_IMPACT[impact],
     }
 
+    # Base AHP-derived weights
+    base_weights = {
+        "C": 0.457,
+        "R": 0.301,
+        "S": 0.158,
+        "E": 0.084,
+    }
+
+    # Dynamic re-normalization when E = 0 (controlled local environment)
+    if impact == "local":
+        active_sum = base_weights["C"] + base_weights["R"] + base_weights["S"]
+        weights = {
+            "C": base_weights["C"] / active_sum,  # ~0.499
+            "R": base_weights["R"] / active_sum,  # ~0.329
+            "S": base_weights["S"] / active_sum,  # ~0.172
+            "E": 0.0,
+        }
+    else:
+        weights = base_weights
+
     score = constants["M"] * (
-        0.35 * constants["C"]
-        + 0.30 * constants["R"]
-        + 0.20 * constants["S"]
-        + 0.15 * constants["E"]
-    ) 
+        weights["C"] * constants["C"]
+        + weights["R"] * constants["R"]
+        + weights["S"] * constants["S"]
+        + weights["E"] * constants["E"]
+    )
 
     return {
         "importance": round(score, 3),
         "constants": constants,
+        "weights_used": {k: round(v, 3) for k, v in weights.items()},
         "recovery_status": recovery["status"],
         "provisional": modifies and (
             recovery["status"] == "unknown" or impact == "unknown"
