@@ -3,6 +3,9 @@ from pathlib import Path
 import git
 from git import InvalidGitRepositoryError, NoSuchPathError
 
+from azure.core.exceptions import AzureError
+from azure.storage.blob import BlobServiceClient
+DEFAULT_CONTAINER = "Temp_Container"
 
 def init_repo(repo_path: str) -> git.Repo:
     path = Path(repo_path).resolve()
@@ -101,3 +104,126 @@ def get_history(repo: git.Repo, limit: int = 20) -> list[dict[str, str]]:
         }
         for commit in repo.iter_commits(max_count=limit)
     ]
+
+def get_changed_lines_from_last_commit_and_unstaged(
+    repo: git.Repo,
+) -> int:
+    
+    def count_numstat_lines(numstat_output: str) -> int:
+        total = 0
+
+        for line in numstat_output.splitlines():
+            parts = line.split("\t")
+
+            if len(parts) < 2:
+                continue
+
+            additions, deletions = parts[0], parts[1]
+
+            if additions.isdigit():
+                total += int(additions)
+
+            if deletions.isdigit():
+                total += int(deletions)
+
+        return total
+
+    try:
+        last_commit_changes = repo.git.show(
+            "--numstat",
+            "--format=",
+            "HEAD",
+        )
+
+        unstaged_changes = repo.git.diff(
+            "--numstat",
+        )
+    except git.GitCommandError as error:
+        raise ValueError(
+            f"Unable to calculate changed lines: {error}"
+        ) from error
+
+    return (
+        count_numstat_lines(last_commit_changes)
+        + count_numstat_lines(unstaged_changes)
+    )
+
+def push_git(
+    repo_path: str,
+    connection_string: str,
+    key: str,
+    container_name: str = DEFAULT_CONTAINER,
+) -> bool:
+
+
+    repo = Path(repo_path).resolve()
+    git_directory = repo / ".git"
+
+
+    blob_service = BlobServiceClient.from_connection_string(connection_string)
+    container_client = blob_service.get_container_client(container_name)
+    container_client.create_container(exist_ok=True)
+
+    blob_prefix = key.strip("/")
+
+
+    for file_path in git_directory.rglob("*"):
+        if not file_path.is_file():
+            continue
+
+        relative_path = file_path.relative_to(git_directory).as_posix()
+        blob_name = f"{blob_prefix}/{relative_path}"
+
+        with file_path.open("rb") as file_data:
+            container_client.upload_blob(
+                name=blob_name,
+                data=file_data,
+                overwrite=True,
+            )
+
+    return True
+
+def get_git(
+    repo_path: str,
+    connection_string: str,
+    key: str,
+    container_name: str = DEFAULT_CONTAINER,
+) -> bool:
+
+    repo = Path(repo_path).resolve()
+
+    git_directory = repo / ".git"
+    blob_service = BlobServiceClient.from_connection_string(connection_string)
+    container_client = blob_service.get_container_client(container_name)
+
+    blob_prefix = key.strip("/") + "/"
+    blobs = list(container_client.list_blobs(name_starts_with=blob_prefix))
+
+    if not blobs:
+        raise FileNotFoundError(
+            f"No Git data found in container '{container_name}' "
+            f"with key '{key}'."
+        )
+
+    for blob in blobs:
+        relative_path = blob.name[len(blob_prefix):]
+
+        if not relative_path:
+            continue
+
+        destination = (git_directory / relative_path).resolve()
+
+        try:
+            destination.relative_to(git_directory.resolve())
+        except ValueError as error:
+            raise ValueError(
+                f"Unsafe blob path received from Azure: {blob.name}"
+            ) from error
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        with destination.open("wb") as file_data:
+            download_stream = container_client.download_blob(blob.name)
+            file_data.write(download_stream.readall())
+
+    return True

@@ -1,8 +1,15 @@
 fastapi
 uvicorn
 python-multipart
+<<<<<<< HEAD
 ollama
 transformers
 torch
 accelerate
 GitPython
+=======
+transformers
+azure-storage-blob
+ollama
+GitPython
+>>>>>>> checkpoint-restore
