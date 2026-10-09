@@ -110,7 +110,7 @@ def push_git(
     connection_string: str,
     key: str,
     container_name: str = DEFAULT_CONTAINER,
-) -> int:
+) -> bool:
 
 
     repo = Path(repo_path).resolve()
@@ -137,5 +137,50 @@ def push_git(
                 data=file_data,
                 overwrite=True,
             )
+
+    return True
+
+def get_git(
+    repo_path: str,
+    connection_string: str,
+    key: str,
+    container_name: str = DEFAULT_CONTAINER,
+) -> bool:
+
+    repo = Path(repo_path).resolve()
+
+    git_directory = repo / ".git"
+    blob_service = BlobServiceClient.from_connection_string(connection_string)
+    container_client = blob_service.get_container_client(container_name)
+
+    blob_prefix = key.strip("/") + "/"
+    blobs = list(container_client.list_blobs(name_starts_with=blob_prefix))
+
+    if not blobs:
+        raise FileNotFoundError(
+            f"No Git data found in container '{container_name}' "
+            f"with key '{key}'."
+        )
+
+    for blob in blobs:
+        relative_path = blob.name[len(blob_prefix):]
+
+        if not relative_path:
+            continue
+
+        destination = (git_directory / relative_path).resolve()
+
+        try:
+            destination.relative_to(git_directory.resolve())
+        except ValueError as error:
+            raise ValueError(
+                f"Unsafe blob path received from Azure: {blob.name}"
+            ) from error
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        with destination.open("wb") as file_data:
+            download_stream = container_client.download_blob(blob.name)
+            file_data.write(download_stream.readall())
 
     return True

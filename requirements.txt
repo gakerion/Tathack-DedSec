@@ -3,3 +3,6 @@ uvicorn
 pydantic
 python-multipart
 transformers
+azure-storage-blob
+ollama
+GitPython
