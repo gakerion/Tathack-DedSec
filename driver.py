@@ -80,6 +80,15 @@ def create_commit(repo: git.Repo, message: str) -> str:
     return commit.hexsha
 
 
+def repo_hard_reset(repo: git.Repo, commit_hash: str) -> None: 
+    if not commit_hash.strip():
+        raise ValueError("Commit hash cannot be empty.")
+
+    try:
+        repo.git.reset("--hard", commit_hash.strip())
+    except git.GitCommandError as error:
+        raise ValueError(f"Failed to reset to commit {commit_hash}: {error}") from error
+
 def get_history(repo: git.Repo, limit: int = 20) -> list[dict[str, str]]:
     if limit < 1:
         raise ValueError("History limit must be positive.")
