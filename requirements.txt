@@ -1,5 +1,8 @@
 fastapi
 uvicorn
-pydantic
 python-multipart
+ollama
 transformers
+torch
+accelerate
+GitPython

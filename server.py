@@ -1,87 +1,53 @@
-from fastapi import FastAPI, File, Form, UploadFile
+"""Local prototype API. Run one worker to share its in-memory history."""
+from copy import deepcopy
+from threading import Lock
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-import time
 from checkpoint_helper import run_ollama_test
 
-
-
-checkpoints = [
-    {
-        "prompt": "Prompt 1",
-        "commits": [
-            {
-                    "task": "Make background black",
-                    "commit_hash": "1abcde",
-                    "importance" : 0.5
-                },
-                {
-                    "task": "Make bird orange",
-                    "commit_hash": "2abcde",
-                    "importance" : 0.7
-                },
-                {
-                    "task": "Make score to top left",
-                    "commit-hash": "3abcde",
-                    "importance" : 0.2
-                }
-        ]
-    },
-    {
-        "prompt": "Prompt 2",
-        "commits": [
-            {
-                    "task": "Make some noise",
-                    "commit_hash": "56abcd",
-                    "importance" : 0.1
-                },
-                {
-                    "task": "Make me crazy",
-                    "commit_hash": "484dace",
-                    "importance" : 0.6
-                },
-                {
-                    "task": "Make score",
-                    "commit-hash": "885fde",
-                    "importance" : 0.8
-                }
-        ]
-    },
-    
-]
-
-
 app = FastAPI()
-
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    CORSMiddleware, allow_origins=["http://localhost:5173"],
+    allow_methods=["GET", "POST"], allow_headers=["Content-Type"],
 )
-
-# @app.get("/")
-# def startModel():
-#     return {"message": "HoneyGate API is running"}
+checkpoints = []
+model_lock = Lock()
+history_lock = Lock()
 
 
 @app.get("/checkpoints")
 def get_checkpoints():
-    return {"checkpoints": checkpoints}
+    with history_lock:
+        return {"checkpoints": deepcopy(checkpoints), "history_persistent": False}
+
 
 @app.post("/chat")
-def prompt(
-    prompt: str = Form(...),
-    file: UploadFile | None = File(None),
-):
-    file_content = None
-
+def prompt(prompt: str = Form(...), file: UploadFile | None = File(None)):
     if file is not None:
-        file_content = file.file.read()
         file.file.close()
-
-    return {"result": run_ollama_test(prompt)["output"]}
+        raise HTTPException(status_code=422, detail="File attachments are not supported yet.")
+    if not prompt.strip():
+        raise HTTPException(status_code=422, detail="Prompt must not be blank.")
+    # Serialize local model calls because the helper instance and RAM are shared.
+    with model_lock:
+        packet = run_ollama_test(prompt)
+        group = {"prompt": prompt, "commits": [], "actions": packet["actions"]}
+        for action in packet["actions"]:
+            if action["status"] == "executed" and "checkpoint_id" in action:
+                group["commits"].append({
+                    "task": f"{action['operation'].capitalize()} {action['target']}"
+                            + (f" -> {action['destination']}" if "destination" in action else ""),
+                    # Frontend compatibility alias; this is NOT a Git commit.
+                    "commit_hash": action["checkpoint_id"],
+                    "checkpoint_id": action["checkpoint_id"],
+                    "importance": action["importance"], "restore_supported": False,
+                })
+        with history_lock:
+            checkpoints.append(group)
+    # FastAPI encodes once. Preserve result for the existing chat frontend.
+    return {**packet, "result": packet["output"]}
 
 
 @app.post("/restore")
 def restore_checkpoint(commit_hash: str):
-    return restore_commit(commit_hash)
+    raise HTTPException(status_code=501, detail="Checkpoint restoration is not implemented yet.")
