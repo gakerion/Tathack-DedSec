@@ -15,6 +15,11 @@ from importance import calculate_importance
 from helper import commit_changes, should_commit
 from driver import init_repo, get_repo
 
+repo_path = "ENTER YOUR TARGET REPO PATH HERE"  # Replace with the actual path to your Git repository
+AZURE_STRING = "ENTER YOUR AZURE STORAGE CONNECTION STRING HERE"  # Replace with your Azure Storage connection string
+AZURE_KEY = "honeygate"
+
+
 BASE = Path(__file__).resolve().parent
 WORKSPACE = BASE / "workspace"
 CHECKPOINTS = BASE / "checkpoints"
