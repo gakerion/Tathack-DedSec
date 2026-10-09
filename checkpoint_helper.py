@@ -467,10 +467,8 @@ def run_ollama_test(text):
         "thinking": thinking_text,
         "output": normal_output,
         "actions": actions,
-        "checkpoint_suggestions": None,
+        "checkpoint_marks": None,
     }
-
-    save_checkpoint_marks(json.dumps(packet, indent=2))
 
     if thinking_text.strip():
         try:
@@ -478,14 +476,16 @@ def run_ollama_test(text):
                 agent_id="configuration_agent",
                 thinking_text=thinking_text,
             )
-            packet["checkpoint_suggestions"] = json.loads(marks)
+            packet["checkpoint_marks"] = json.loads(marks)
         except Exception as error:
             packet["helper_error"] = str(error)
 
     save_checkpoint_marks(json.dumps(packet, indent=2))
     print("\nMODEL ANSWER:\n", normal_output, flush=True)
 
-    return packet
+    return json.dumps(packet, ensure_ascii=False)    
+
+    # return packet
     
 if __name__ == "__main__":
     task = input("Enter your task: ")

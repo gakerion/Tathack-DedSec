@@ -4,15 +4,6 @@ import time
 from checkpoint_helper import run_ollama_test
 
 
-def aiModel(prompt: str, file_content: bytes | None = None):
-    time.sleep(1)
-
-    file_text = ""
-    if file_content is not None:
-        file_text = "\n" + file_content.decode("utf-8")
-
-    return "Bro here is your response " + prompt + file_text
-
 
 checkpoints = [
     {
