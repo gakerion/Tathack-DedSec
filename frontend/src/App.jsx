@@ -4,6 +4,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import Layout from './components/Layout';
 import AboutUs from './components/layouts/AboutUs';
 import Chat from './components/layouts/Chat';
+import HowToUse from './components/layouts/HowToUse'
 
 function App() {
   const [count, setCount] = useState(0)
@@ -15,6 +16,10 @@ function App() {
         {
           path: '/',
           element: <Chat />
+        },
+        {
+          path:'/how-to-use',
+          element: <HowToUse />
         },
         {
           path:'/about',
