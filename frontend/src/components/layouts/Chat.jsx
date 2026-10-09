@@ -2,6 +2,7 @@ import { useState } from "react";
 import "./Chat.css";
 import logoIcon from "../../assets/logo-icon.png";
 import userIcon from "../../assets/user.png";
+import { useOutletContext } from "react-router-dom";
 
 const API = "http://127.0.0.1:8000";
 
@@ -12,6 +13,7 @@ function Chat() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copiedId, setCopiedId] = useState(null);
+  const { setHasChat } = useOutletContext();
 
   async function handleSubmit(event) {
     event.preventDefault();
