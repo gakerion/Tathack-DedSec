@@ -1,4 +1,5 @@
 """Controlled file operations and descriptive reasoning analysis for HoneyGate."""
+
 import base64
 import hashlib
 import json
@@ -14,13 +15,15 @@ from importance import calculate_importance
 import ollama
 
 from helper import commit_changes, should_commit
-from driver import init_repo, get_repo , push_git
+from driver import init_repo, get_repo, push_git
 
-repo_path = "C:\\Users\\aksha\\Downloads\\HACKATHON\\Tathack-DedSec\\" \
-    "" \
-    "workspace"  # Replace with the actual path to your Git repository
-AZURE_STRING = "DefaultEndpointsProtocol=https;AccountName=honeygate;AccountKey=7o8jwRu3XNl91" \
-"dKVoM683/qf1V38QbkrH/SB6PV2OWNXI5xRTqbp27kpfHKofsyOcAMMXlJx69xF+AStdre0Fw==;EndpointSuffix=core.windows.net"  # Replace with your Azure Storage connection string
+repo_path = (
+    "C:\\Users\\aksha\\Downloads\\HACKATHON\\Tathack-DedSec\\" "" "workspace"
+)  # Replace with the actual path to your Git repository
+AZURE_STRING = (
+    "DefaultEndpointsProtocol=https;AccountName=honeygate;AccountKey=7o8jwRu3XNl91"
+    "dKVoM683/qf1V38QbkrH/SB6PV2OWNXI5xRTqbp27kpfHKofsyOcAMMXlJx69xF+AStdre0Fw==;EndpointSuffix=core.windows.net"
+)  # Replace with your Azure Storage connection string
 AZURE_KEY = "7o8jwRu3XNl91dKVoM683/qf1V38QbkrH/SB6PV2OWNXI5xRTqbp27kpfHKofsyOcAMMXlJx69xF+AStdre0Fw=="
 
 
@@ -60,50 +63,112 @@ MAX_READ_CHARS = 12000
 MAX_SEARCH_RESULTS = 100
 _tool_lock = Lock()
 
+
 def _tool(name, description, properties, required):
-    return {"type": "function", "function": {
-        "name": name, "description": description,
-        "parameters": {"type": "object", "properties": properties,
-                       "required": required, "additionalProperties": False},
-    }}
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+                "additionalProperties": False,
+            },
+        },
+    }
+
 
 _TEXT = {"type": "string"}
-_HASH = {"type": "string", "description": "Optional SHA-256 from a previous read; block if the file changed."}
+_HASH = {
+    "type": "string",
+    "description": "Optional SHA-256 from a previous read; block if the file changed.",
+}
 tools = [
-    _tool("create_text_file", "Create a NEW UTF-8 file. Cannot overwrite existing files.",
-          {"filename": _TEXT, "content": _TEXT}, ["filename", "content"]),
-    _tool("read_text_file", "Read a UTF-8 file. Returns SHA-256 and flags truncated content.",
-          {"filename": _TEXT}, ["filename"]),
-    _tool("list_workspace_files", "List regular files in the workspace. No changes.", {}, []),
-    _tool("search_text_files", "Search literal text in UTF-8 files. No regular expressions or changes.",
-          {"query": _TEXT, "filename": _TEXT, "case_sensitive": {"type": "boolean"}}, ["query"]),
-    _tool("edit_text_file", "Replace exact old_text with new_text in an existing UTF-8 file. "
-          "Multiple matches are blocked unless replace_all is true. Saves a checkpoint first.",
-          {"filename": _TEXT, "old_text": _TEXT, "new_text": _TEXT,
-           "replace_all": {"type": "boolean"}, "expected_sha256": _HASH},
-          ["filename", "old_text", "new_text"]),
-    _tool("overwrite_text_file", "Replace ALL content of an existing UTF-8 file. Saves a checkpoint first.",
-          {"filename": _TEXT, "content": _TEXT, "expected_sha256": _HASH}, ["filename", "content"]),
-    _tool("delete_file", "Delete one existing regular file after saving its bytes in a checkpoint. No directories.",
-          {"filename": _TEXT, "expected_sha256": _HASH}, ["filename"]),
-    _tool("move_file", "Rename a regular file inside the workspace to a NEW filename. "
-          "Never replaces an existing destination. Saves both path states first.",
-          {"source": _TEXT, "destination": _TEXT, "expected_sha256": _HASH}, ["source", "destination"]),
+    _tool(
+        "create_text_file",
+        "Create a NEW UTF-8 file. Cannot overwrite existing files.",
+        {"filename": _TEXT, "content": _TEXT},
+        ["filename", "content"],
+    ),
+    _tool(
+        "read_text_file",
+        "Read a UTF-8 file. Returns SHA-256 and flags truncated content.",
+        {"filename": _TEXT},
+        ["filename"],
+    ),
+    _tool(
+        "list_workspace_files",
+        "List regular files in the workspace. No changes.",
+        {},
+        [],
+    ),
+    _tool(
+        "search_text_files",
+        "Search literal text in UTF-8 files. No regular expressions or changes.",
+        {"query": _TEXT, "filename": _TEXT, "case_sensitive": {"type": "boolean"}},
+        ["query"],
+    ),
+    _tool(
+        "edit_text_file",
+        "Replace exact old_text with new_text in an existing UTF-8 file. "
+        "Multiple matches are blocked unless replace_all is true. Saves a checkpoint first.",
+        {
+            "filename": _TEXT,
+            "old_text": _TEXT,
+            "new_text": _TEXT,
+            "replace_all": {"type": "boolean"},
+            "expected_sha256": _HASH,
+        },
+        ["filename", "old_text", "new_text"],
+    ),
+    _tool(
+        "overwrite_text_file",
+        "Replace ALL content of an existing UTF-8 file. Saves a checkpoint first.",
+        {"filename": _TEXT, "content": _TEXT, "expected_sha256": _HASH},
+        ["filename", "content"],
+    ),
+    _tool(
+        "delete_file",
+        "Delete one existing regular file after saving its bytes in a checkpoint. No directories.",
+        {"filename": _TEXT, "expected_sha256": _HASH},
+        ["filename"],
+    ),
+    _tool(
+        "move_file",
+        "Rename a regular file inside the workspace to a NEW filename. "
+        "Never replaces an existing destination. Saves both path states first.",
+        {"source": _TEXT, "destination": _TEXT, "expected_sha256": _HASH},
+        ["source", "destination"],
+    ),
 ]
-_TOOL_SPECS = {item["function"]["name"]: item["function"]["parameters"] for item in tools}
-_OPERATIONS = {"create_text_file": "create", "read_text_file": "read",
-               "list_workspace_files": "search", "search_text_files": "search",
-               "edit_text_file": "edit", "overwrite_text_file": "overwrite",
-               "delete_file": "delete", "move_file": "move"}
+_TOOL_SPECS = {
+    item["function"]["name"]: item["function"]["parameters"] for item in tools
+}
+_OPERATIONS = {
+    "create_text_file": "create",
+    "read_text_file": "read",
+    "list_workspace_files": "search",
+    "search_text_files": "search",
+    "edit_text_file": "edit",
+    "overwrite_text_file": "overwrite",
+    "delete_file": "delete",
+    "move_file": "move",
+}
+
 
 def get_helper():
     global helper
     if helper is None:
         from transformers import pipeline
+
         logger.info("Loading checkpoint helper")
-        helper = pipeline("text-generation", model=HELPER_MODEL,
-                          device_map="auto", dtype="auto")
+        helper = pipeline(
+            "text-generation", model=HELPER_MODEL, device_map="auto", dtype="auto"
+        )
     return helper
+
 
 def find_reasoning_quote(quote, reasoning):
     """Match quoted text exactly, except for whitespace differences."""
@@ -112,6 +177,7 @@ def find_reasoning_quote(quote, reasoning):
         return None
     match = re.search(r"\s+".join(re.escape(part) for part in parts), reasoning)
     return match.group(0) if match else None
+
 
 def normalize_checkpoint_json(content, agent_id, thinking_text):
     """Return descriptive suggestions as a list, never execution facts/scores."""
@@ -138,23 +204,39 @@ def normalize_checkpoint_json(content, agent_id, thinking_text):
             if not isinstance(item[field], str) or not item[field].strip():
                 raise ValueError(f"Suggestion {index}: {field} must be nonempty text.")
         operation = item["operation"].strip().lower()
-        if operation not in {"read", "search", "create", "move", "edit", "overwrite", "delete"}:
+        if operation not in {
+            "read",
+            "search",
+            "create",
+            "move",
+            "edit",
+            "overwrite",
+            "delete",
+        }:
             raise ValueError(f"Suggestion {index}: invalid operation {operation!r}.")
         title = item["title"].strip()
         if not 16 <= len(title) <= 20 or any(c in title for c in "\r\n"):
-            raise ValueError(f"Suggestion {index}: title must be one line of 16-20 characters.")
+            raise ValueError(
+                f"Suggestion {index}: title must be one line of 16-20 characters."
+            )
         target = item["target"]
         if target is not None and (not isinstance(target, str) or not target.strip()):
             raise ValueError(f"Suggestion {index}: target must be text or null.")
         evidence = item["supporting_text"].strip()
         exact = find_reasoning_quote(evidence, thinking_text)
-        normalized.append({
-            "agent_id": agent_id, "operation": operation, "title": title,
-            "target": target.strip() if target is not None else None,
-            "supporting_text": exact if exact is not None else evidence,
-            "evidence_verified": exact is not None, "reason": item["reason"].strip(),
-        })
+        normalized.append(
+            {
+                "agent_id": agent_id,
+                "operation": operation,
+                "title": title,
+                "target": target.strip() if target is not None else None,
+                "supporting_text": exact if exact is not None else evidence,
+                "evidence_verified": exact is not None,
+                "reason": item["reason"].strip(),
+            }
+        )
     return normalized
+
 
 def suggest_checkpoint_marks(agent_id, thinking_text):
     if not isinstance(thinking_text, str) or not thinking_text.strip():
@@ -204,21 +286,29 @@ def suggest_checkpoint_marks(agent_id, thinking_text):
 
     return normalize_checkpoint_json(raw, agent_id, thinking_text)
 
+
 def _validate_filename(filename):
     reserved = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
-    reserved.update(f"{prefix}{number}" for prefix in ("COM", "LPT") for number in "123456789¹²³")
-    if (not filename.strip() or filename in {".", ".."}
+    reserved.update(
+        f"{prefix}{number}" for prefix in ("COM", "LPT") for number in "123456789¹²³"
+    )
+    if (
+        not filename.strip()
+        or filename in {".", ".."}
         or filename.lower().startswith(".honeygate-")
         or filename.endswith((".", " "))
         or any(ord(c) < 32 or c in '/\\:<>"|?*' for c in filename)
-        or filename.split(".", 1)[0].rstrip(" .").upper() in reserved):
+        or filename.split(".", 1)[0].rstrip(" .").upper() in reserved
+    ):
         raise ValueError("Invalid filename; use a plain filename inside the workspace.")
+
 
 def _storage_directory(path):
     if path.is_symlink() or path.is_junction():
         raise ValueError("Storage directories must not be links or junctions.")
     path.mkdir(exist_ok=True)
     return path.resolve(strict=True)
+
 
 def _write_checkpoint(path, checkpoint):
     with path.open("x", encoding="utf-8") as file:
@@ -227,6 +317,7 @@ def _write_checkpoint(path, checkpoint):
         os.fsync(file.fileno())
     if json.loads(path.read_text(encoding="utf-8")) != checkpoint:
         raise ValueError("Checkpoint verification failed.")
+
 
 def _workspace_path(workspace, filename):
     _validate_filename(filename)
@@ -238,6 +329,7 @@ def _workspace_path(workspace, filename):
     if path.exists() and not path.is_file():
         raise ValueError("Only regular files are supported, not directories.")
     return path
+
 
 def _snapshot(path):
     """Capture original bytes, not just a pathname or an unverified backup claim."""
@@ -254,30 +346,51 @@ def _snapshot(path):
     with path.open("rb") as file:
         data = file.read(MAX_FILE_BYTES + 1)
     after = path.stat()
-    if (len(data) > MAX_FILE_BYTES or
-        (before.st_ino, before.st_size, before.st_mtime_ns) !=
-        (after.st_ino, after.st_size, after.st_mtime_ns)):
+    if len(data) > MAX_FILE_BYTES or (
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+    ) != (after.st_ino, after.st_size, after.st_mtime_ns):
         raise ValueError("File changed while being read; retry after inspecting it.")
-    return {"filename": path.name, "existed_before": True,
-            "content_base64": base64.b64encode(data).decode("ascii"),
-            "sha256": hashlib.sha256(data).hexdigest(),
-            "mode": stat.S_IMODE(before.st_mode)}
+    return {
+        "filename": path.name,
+        "existed_before": True,
+        "content_base64": base64.b64encode(data).decode("ascii"),
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "mode": stat.S_IMODE(before.st_mode),
+    }
+
 
 def _bytes(snapshot):
     return base64.b64decode(snapshot["content_base64"], validate=True)
+
 
 def _assert_unchanged(path, expected):
     if _snapshot(path) != expected:
         raise ValueError(f"{path.name} changed after checkpointing; action blocked.")
 
+
 def _facts(operation, count, verified=False):
-    return {"affected_count": count, "impact": "local",
-            "checkpoint_verified": verified, "backup_verified": verified,
-            "automatic_restore_supported": False, "manual_restore_supported": False,
-            "reversible": True, "restore_supported": False,
-            **calculate_importance(operation, count, impact="local", backup_verified=verified,
-                                   automatic_restore_supported=False,
-                                   manual_restore_supported=False, reversible=True)}
+    return {
+        "affected_count": count,
+        "impact": "local",
+        "checkpoint_verified": verified,
+        "backup_verified": verified,
+        "automatic_restore_supported": False,
+        "manual_restore_supported": False,
+        "reversible": True,
+        "restore_supported": False,
+        **calculate_importance(
+            operation,
+            count,
+            impact="local",
+            backup_verified=verified,
+            automatic_restore_supported=False,
+            manual_restore_supported=False,
+            reversible=True,
+        ),
+    }
+
 
 def _workspace_files(workspace):
     files = []
@@ -291,20 +404,30 @@ def _workspace_files(workspace):
                 continue
     return files
 
+
 def _execute_read(name, arguments, workspace, result):
     if name == "list_workspace_files":
         files = _workspace_files(workspace)
-        return {**result, "status": "executed", "files": [p.name for p in files],
-                **_facts("search", len(files))}
+        return {
+            **result,
+            "status": "executed",
+            "files": [p.name for p in files],
+            **_facts("search", len(files)),
+        }
     if name == "read_text_file":
         path = _workspace_path(workspace, arguments["filename"])
         snapshot = _snapshot(path)
         if not snapshot["existed_before"]:
             raise ValueError("File does not exist.")
         text = _bytes(snapshot).decode("utf-8")
-        return {**result, "status": "executed", "content": text[:MAX_READ_CHARS],
-                "truncated": len(text) > MAX_READ_CHARS, "sha256": snapshot["sha256"],
-                **_facts("read", 1)}
+        return {
+            **result,
+            "status": "executed",
+            "content": text[:MAX_READ_CHARS],
+            "truncated": len(text) > MAX_READ_CHARS,
+            "sha256": snapshot["sha256"],
+            **_facts("read", 1),
+        }
     if not arguments["query"]:
         raise ValueError("Search query must not be empty.")
     if "filename" in arguments:
@@ -333,12 +456,25 @@ def _execute_read(name, arguments, workspace, result):
                 if len(matches) == MAX_SEARCH_RESULTS:
                     truncated = True
                     break
-                matches.append({"filename": path.name, "line_number": line_number,
-                                "text": line[:500], "line_truncated": len(line) > 500})
+                matches.append(
+                    {
+                        "filename": path.name,
+                        "line_number": line_number,
+                        "text": line[:500],
+                        "line_truncated": len(line) > 500,
+                    }
+                )
         if truncated:
             break
-    return {**result, "status": "executed", "matches": matches, "skipped": skipped,
-            "truncated": truncated, **_facts("search", scanned)}
+    return {
+        **result,
+        "status": "executed",
+        "matches": matches,
+        "skipped": skipped,
+        "truncated": truncated,
+        **_facts("search", scanned),
+    }
+
 
 def _replace_text(path, content, before):
     descriptor, temp_name = tempfile.mkstemp(prefix=".honeygate-", dir=path.parent)
@@ -357,14 +493,17 @@ def _replace_text(path, content, before):
         except OSError:
             logger.warning("Could not remove staging file %s", temporary.name)
 
+
 def _execute_tool(name, arguments):
     result = {"tool": name, "status": "blocked", "state_changed": False}
     if name not in _TOOL_SPECS:
         return {**result, "reason": "Unknown tool"}
     schema = _TOOL_SPECS[name]
-    if (not isinstance(arguments, dict)
+    if (
+        not isinstance(arguments, dict)
         or not set(schema["required"]).issubset(arguments)
-        or not set(arguments).issubset(schema["properties"])):
+        or not set(arguments).issubset(schema["properties"])
+    ):
         return {**result, "reason": "Invalid arguments"}
     for key, value in arguments.items():
         expected = bool if schema["properties"][key]["type"] == "boolean" else str
@@ -376,7 +515,9 @@ def _execute_tool(name, arguments):
         result["target"] = arguments["filename"]
     if name == "move_file":
         result.update(target=arguments["source"], destination=arguments["destination"])
-    if "expected_sha256" in arguments and not re.fullmatch(r"[0-9a-f]{64}", arguments["expected_sha256"]):
+    if "expected_sha256" in arguments and not re.fullmatch(
+        r"[0-9a-f]{64}", arguments["expected_sha256"]
+    ):
         return {**result, "reason": "expected_sha256 must be a lowercase SHA-256 hash."}
 
     try:
@@ -387,9 +528,14 @@ def _execute_tool(name, arguments):
             return _execute_read(name, arguments, workspace, result)
         workspace = _storage_directory(WORKSPACE)
         checkpoint_dir = _storage_directory(CHECKPOINTS)
-        if (workspace == checkpoint_dir or workspace in checkpoint_dir.parents
-            or checkpoint_dir in workspace.parents):
-            raise ValueError("Workspace and checkpoint storage must be separate directories.")
+        if (
+            workspace == checkpoint_dir
+            or workspace in checkpoint_dir.parents
+            or checkpoint_dir in workspace.parents
+        ):
+            raise ValueError(
+                "Workspace and checkpoint storage must be separate directories."
+            )
         filename = arguments.get("filename", arguments.get("source"))
         path = _workspace_path(workspace, filename)
         before = _snapshot(path)
@@ -397,7 +543,10 @@ def _execute_tool(name, arguments):
             raise ValueError("File already exists; this tool only creates new files.")
         if operation != "create" and not before["existed_before"]:
             raise ValueError("File does not exist.")
-        if "expected_sha256" in arguments and before.get("sha256") != arguments["expected_sha256"]:
+        if (
+            "expected_sha256" in arguments
+            and before.get("sha256") != arguments["expected_sha256"]
+        ):
             raise ValueError("File no longer matches expected_sha256; read it again.")
         snapshots = [before]
         paths = [path]
@@ -421,7 +570,9 @@ def _execute_tool(name, arguments):
             if not replacements:
                 raise ValueError("old_text was not found; file was not changed.")
             if replacements > 1 and not arguments.get("replace_all", False):
-                raise ValueError("old_text has multiple matches; use replace_all=true or a unique match.")
+                raise ValueError(
+                    "old_text has multiple matches; use replace_all=true or a unique match."
+                )
             content = text.replace(old, new).encode("utf-8")
         elif operation in {"create", "overwrite"}:
             if operation == "overwrite":
@@ -432,16 +583,25 @@ def _execute_tool(name, arguments):
         if content is not None and len(content) > MAX_FILE_BYTES:
             raise ValueError("New content exceeds the 1 MiB prototype limit.")
         if operation in {"edit", "overwrite"} and content == _bytes(before):
-            return {**result, "status": "unchanged", "reason": "Content is already identical.",
-                    **_facts(operation, 0)}
+            return {
+                **result,
+                "status": "unchanged",
+                "reason": "Content is already identical.",
+                **_facts(operation, 0),
+            }
         facts = _facts(operation, len(paths), verified=True)
         checkpoint_id = uuid.uuid4().hex
         result["checkpoint_id"] = checkpoint_id
         checkpoint = {
-            "schema_version": 2, "checkpoint_id": checkpoint_id, "operation": operation,
-            "filename": path.name, "existed_before": before["existed_before"],
+            "schema_version": 2,
+            "checkpoint_id": checkpoint_id,
+            "operation": operation,
+            "filename": path.name,
+            "existed_before": before["existed_before"],
             "files": snapshots,
-            "expected_after_hash": hashlib.sha256(content).hexdigest() if content is not None else None,
+            "expected_after_hash": (
+                hashlib.sha256(content).hexdigest() if content is not None else None
+            ),
         }
         if operation == "move":
             checkpoint["destination"] = destination.name
@@ -471,10 +631,14 @@ def _execute_tool(name, arguments):
             path.unlink()
             changed_count = 2
     except (OSError, ValueError) as error:
-        return {**result, "status": "failed" if changed_count else "blocked",
-                "state_changed": bool(changed_count), "reason": str(error),
-                **_facts(operation, changed_count, verified=True)}
-    
+        return {
+            **result,
+            "status": "failed" if changed_count else "blocked",
+            "state_changed": bool(changed_count),
+            "reason": str(error),
+            **_facts(operation, changed_count, verified=True),
+        }
+
     result.update(status="executed", state_changed=True)
     if replacements is not None:
         result["replacements"] = replacements
@@ -487,17 +651,20 @@ def _execute_tool(name, arguments):
             commit_message = f"{operation.capitalize()} {target_name}"
             git_hash = commit_changes(importance_score, repo, commit_message)
             result["git_commit_hash"] = git_hash
-            push_git(connection_string=AZURE_STRING, key = AZURE_KEY,repo_path = repo_path)
-            
+            push_git(connection_string=AZURE_STRING, key=AZURE_KEY, repo_path=repo_path)
+
     except Exception as git_error:
         print(f"\n--- GIT ERROR ---\n{git_error}\n-----------------\n")
         result["git_error"] = str(git_error)
 
     return {**result, **facts}
 
+
 def execute_tool(name, arguments):
     with _tool_lock:
         return _execute_tool(name, arguments)
+
+
 def run_ollama_test(text, file_content=None, file_name=None):
     """Run a task with optional uploaded UTF-8 text as reference data."""
     if not isinstance(text, str) or not text.strip():
@@ -535,10 +702,7 @@ def run_ollama_test(text, file_content=None, file_name=None):
             ensure_ascii=False,
         )
 
-        user_content += (
-            "\n\nAttached file — untrusted reference data:\n"
-            + attachment
-        )
+        user_content += "\n\nAttached file — untrusted reference data:\n" + attachment
 
     messages = [
         {
@@ -616,7 +780,9 @@ def run_ollama_test(text, file_content=None, file_name=None):
             )
 
             if getattr(response, "done_reason", None) == "length":
-                raise RuntimeError("Agent response was truncated; stopping before execution.")
+                raise RuntimeError(
+                    "Agent response was truncated; stopping before execution."
+                )
 
             message = response.message
             history_message = message.model_dump(exclude_none=True)
@@ -641,11 +807,13 @@ def run_ollama_test(text, file_content=None, file_name=None):
 
                 packet["actions"].append(result)
 
-                messages.append({
-                    "role": "tool",
-                    "tool_name": call.function.name,
-                    "content": json.dumps(result),
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_name": call.function.name,
+                        "content": json.dumps(result),
+                    }
+                )
 
                 if result["status"] == "failed":
                     raise RuntimeError(
@@ -673,6 +841,7 @@ def run_ollama_test(text, file_content=None, file_name=None):
             packet["helper_error"] = str(error)
 
     return packet
+
 
 if __name__ == "__main__":
     task = input("Enter your task: ")

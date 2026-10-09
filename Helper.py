@@ -12,7 +12,7 @@ from driver import (
     get_repo_status,
     stage_all,
     stage_files,
-    repo_hard_reset
+    repo_hard_reset,
 )
 
 READ_ONLY_TOOLS = {
@@ -28,12 +28,14 @@ MUTATING_TOOLS = {
     "repo_hard_reset",
 }
 
+
 def should_commit(imp: float) -> bool:
     if not isinstance(imp, (float, int)):
         raise ValueError("imp must be a numeric value")
     if imp > 0.4:
         return True
     return False
+
 
 def commit_changes(imp: float, repo: git.Repo, commit_message: str) -> Any:
     stage_all(repo)

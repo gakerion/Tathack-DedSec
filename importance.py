@@ -2,6 +2,7 @@ import math
 import json
 import driver
 import git
+
 repo = git.Repo(".//workspace")  # Assuming the current directory is a Git repository
 
 OPERATION_SEVERITY = {
@@ -21,6 +22,7 @@ EXTERNAL_IMPACT = {
     "unknown": 1.0,
 }
 
+
 def calculate_recovery(
     backup_verified=False,
     automatic_restore_supported=False,
@@ -37,6 +39,7 @@ def calculate_recovery(
         return {"status": "manual_verified", "value": 0.5}
 
     return {"status": "unknown", "value": 1.0}
+
 
 def calculate_importance(
     operation,
@@ -108,7 +111,6 @@ def calculate_importance(
         "constants": constants,
         "weights_used": {k: round(v, 3) for k, v in weights.items()},
         "recovery_status": recovery["status"],
-        "provisional": modifies and (
-            recovery["status"] == "unknown" or impact == "unknown"
-        ),
+        "provisional": modifies
+        and (recovery["status"] == "unknown" or impact == "unknown"),
     }

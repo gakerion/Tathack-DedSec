@@ -5,7 +5,9 @@ from git import InvalidGitRepositoryError, NoSuchPathError
 
 from azure.core.exceptions import AzureError, ResourceExistsError
 from azure.storage.blob import BlobServiceClient
+
 DEFAULT_CONTAINER = "git-backup"
+
 
 def init_repo(repo_path: str) -> git.Repo:
     path = Path(repo_path).resolve()
@@ -33,9 +35,7 @@ def get_repo(repo_path: str) -> git.Repo:
     except InvalidGitRepositoryError as error:
         raise ValueError(f"Not a Git repository: {path}") from error
     except NoSuchPathError as error:
-        raise FileNotFoundError(
-            f"Repository path does not exist: {path}"
-        ) from error
+        raise FileNotFoundError(f"Repository path does not exist: {path}") from error
 
 
 def get_repo_status(repo: git.Repo) -> str:
@@ -83,7 +83,7 @@ def create_commit(repo: git.Repo, message: str) -> str:
     return commit.hexsha
 
 
-def repo_hard_reset(repo: git.Repo, commit_hash: str) -> None: 
+def repo_hard_reset(repo: git.Repo, commit_hash: str) -> None:
     if not commit_hash.strip():
         raise ValueError("Commit hash cannot be empty.")
 
@@ -109,7 +109,7 @@ def get_history(repo: git.Repo, limit: int = 20) -> list[dict[str, str]]:
 def change_commit_unstaged(
     repo: git.Repo,
 ) -> int:
-    
+
     def count_numstat_lines(numstat_output: str) -> int:
         total = 0
 
@@ -140,13 +140,10 @@ def change_commit_unstaged(
             "--numstat",
         )
     except git.GitCommandError as error:
-        raise ValueError(
-            f"Unable to calculate changed lines: {error}"
-        ) from error
+        raise ValueError(f"Unable to calculate changed lines: {error}") from error
 
-    return (
-        count_numstat_lines(last_commit_changes)
-        + count_numstat_lines(unstaged_changes)
+    return count_numstat_lines(last_commit_changes) + count_numstat_lines(
+        unstaged_changes
     )
 
 
@@ -155,7 +152,7 @@ def push_git(
     connection_string: str,
     key: str,
     container_name: str = DEFAULT_CONTAINER,
-    ) -> int:
+) -> int:
     """
     Upload the target repository's .git folder to Azure Blob Storage.
 
@@ -232,12 +229,11 @@ def get_git(
 
     if not blobs:
         raise FileNotFoundError(
-            f"No Git data found in container '{container_name}' "
-            f"with key '{key}'."
+            f"No Git data found in container '{container_name}' " f"with key '{key}'."
         )
 
     for blob in blobs:
-        relative_path = blob.name[len(blob_prefix):]
+        relative_path = blob.name[len(blob_prefix) :]
 
         if not relative_path:
             continue
