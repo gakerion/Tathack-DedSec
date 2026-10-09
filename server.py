@@ -1,17 +1,56 @@
-"""Local prototype API. Run one worker to share its in-memory history."""
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from threading import Lock
+
+import ollama
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from checkpoint_helper import run_ollama_test
-from driver import get_repo, repo_hard_reset
-from checkpoint_helper import WORKSPACE
 
-app = FastAPI()
+from checkpoint_helper import AGENT_MODEL, WORKSPACE, get_helper, run_ollama_test
+from driver import get_repo, repo_hard_reset
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Load the AI models when the FastAPI application starts.
+    The application will not finish starting if model initialization fails.
+    """
+    try:
+        # Load the Hugging Face checkpoint helper.
+        get_helper()
+
+        # Load the Ollama agent model into memory.
+        ollama.chat(
+            model=AGENT_MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Initialize the model.",
+                }
+            ],
+            keep_alive="10m",
+            options={
+                "num_ctx": 4096,
+            },
+        )
+    except Exception as error:
+        raise RuntimeError(
+            f"Failed to initialize AI models during application startup: {error}"
+        ) from error
+
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
 app.add_middleware(
-    CORSMiddleware, allow_origins=["http://localhost:5173"],
-    allow_methods=["GET", "POST"], allow_headers=["Content-Type"],
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+
+
 checkpoints = []
 model_lock = Lock()
 history_lock = Lock()

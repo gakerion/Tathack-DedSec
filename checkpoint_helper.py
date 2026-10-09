@@ -560,8 +560,8 @@ def run_ollama_test(text, file_content=None, file_name=None):
             response = ollama.chat(
                 model=AGENT_MODEL,
                 think=True,
-                keep_alive=0,
                 tools=tools,
+                keep_alive="10m",
                 options={
                     "num_ctx": 8192 if has_attachment else 4096,
                 },
