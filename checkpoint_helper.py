@@ -238,6 +238,7 @@ def suggest_checkpoint_marks(
 
         "Return ONLY a valid JSON array. Each object must contain: "
         "operation: one of the allowed operation names; "
+        "title: a concise commit-style description of the planned operation; "
         "target: the affected file explicitly named, or null if unknown; "
         "affected_count: a non-negative integer resource count; "
         "impact: one of local, shared, external, unknown; "
@@ -245,7 +246,17 @@ def suggest_checkpoint_marks(
         "automatic_restore_supported: a boolean; "
         "manual_restore_supported: a boolean; "
         "reversible: a boolean; "
-        "supporting_text: a short quote copied directly from the reasoning. "
+        "supporting_text: a short quote copied directly from the reasoning; "
+        "reason: a concise explanation of why this operation needs a checkpoint. "
+        "Do not omit reason, even when the supporting quote is short. "
+
+        "Title must be a single line containing 16 to 20 characters, "
+        "including spaces and punctuation. "
+        "Use a concise imperative phrase describing the operation. "
+        "Use sentence case, no trailing period, and no Markdown. "
+        "Do not add filler or invent details to meet the length. "
+        "Example: Update API endpoint. "
+
         "Do not invent targets or operations. "
         "Do not include importance scores or Markdown fences. "
         "Return [] if no explicit operation is identified."
