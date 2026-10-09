@@ -64,6 +64,20 @@ def normalize_importance(value):
     )
 
 
+def find_reasoning_quote(quote, reasoning):
+    """Return the exact reasoning substring matching quote, ignoring whitespace."""
+    quote_parts = [part for part in re.split(r"\s+", quote.strip()) if part]
+    if not quote_parts:
+        return None
+
+    pattern = r"\s+".join(re.escape(part) for part in quote_parts)
+    match = re.search(pattern, reasoning)
+    if match is None:
+        return None
+
+    return match.group(0)
+
+
 def normalize_checkpoint_json(
     content, agent_id, thinking_text, available_functions=None
 ):
@@ -110,6 +124,16 @@ def normalize_checkpoint_json(
         function = checkpoint["function"].strip()
         target = checkpoint["target"]
         evidence = checkpoint["supporting_text"].strip()
+        exact_evidence = find_reasoning_quote(evidence, thinking_text)
+        evidence_verified = exact_evidence is not None
+
+        if evidence_verified:
+            evidence = exact_evidence
+        else:
+            print(
+                f"Warning: checkpoint {index} has an unverified quote.",
+                flush=True,
+            )
 
         if target is not None and (
             not isinstance(target, str) or not target.strip()
@@ -119,17 +143,12 @@ def normalize_checkpoint_json(
         if available_functions and function not in available_functions:
             raise ValueError(f"Unknown function suggested: {function}")
 
-        if evidence not in thinking_text:
-            raise ValueError(
-                f"Checkpoint {index}: supporting_text is not an exact "
-                "quote from the reasoning."
-            )
-
         normalized.append({
             "agent_id": agent_id,
             "function": function,
             "target": target,
             "supporting_text": evidence,
+            "evidence_verified": evidence_verified,
             "reason": checkpoint["reason"].strip(),
             "importance": normalize_importance(checkpoint["importance"]),
         })
