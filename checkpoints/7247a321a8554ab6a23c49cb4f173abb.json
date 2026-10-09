@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "checkpoint_id": "7247a321a8554ab6a23c49cb4f173abb",
+  "operation": "create",
+  "filename": "html.txt",
+  "existed_before": false,
+  "files": [
+    {
+      "filename": "html.txt",
+      "existed_before": false
+    }
+  ],
+  "expected_after_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

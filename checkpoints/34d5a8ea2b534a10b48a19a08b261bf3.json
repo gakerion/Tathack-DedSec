@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "checkpoint_id": "34d5a8ea2b534a10b48a19a08b261bf3",
+  "operation": "create",
+  "filename": "game.py",
+  "existed_before": false,
+  "files": [
+    {
+      "filename": "game.py",
+      "existed_before": false
+    }
+  ],
+  "expected_after_hash": "ed8618965a120df424aca052706dd6e011d5c1fa6832bf983b354222455ce80b"
+}
