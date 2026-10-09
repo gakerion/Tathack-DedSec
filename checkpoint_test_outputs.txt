@@ -1,0 +1,66 @@
+TEST: Read only
+INPUT: I will read the report and summarize its contents.
+OUTPUT:
+[]
+
+TEST: Edit
+INPUT: I will overwrite config.json with the new settings.
+OUTPUT:
+[
+  {
+    "function": "Overwrite",
+    "reason": "The model identified this as a state-changing action, but did not provide a detailed reason.",
+    "importance": 0.500
+  },
+  {
+    "function": "config.json",
+    "reason": "The model identified this as a state-changing action, but did not provide a detailed reason.",
+    "importance": 0.500
+  },
+  {
+    "function": "1.000",
+    "reason": "The model identified this as a state-changing action, but did not provide a detailed reason.",
+    "importance": 0.500
+  }
+]
+
+TEST: Delete
+INPUT: I will delete duplicate records from the database.
+OUTPUT:
+[]
+
+TEST: Multiple actions
+INPUT: I will read notes.txt, create summary.txt, then delete old_notes.txt.
+OUTPUT:
+[
+  {
+    "function": "read",
+    "reason": "The model identified this as a state-changing action, but did not provide a detailed reason.",
+    "importance": 0.500
+  },
+  {
+    "function": "summary.txt",
+    "reason": "The model identified this as a state-changing action, but did not provide a detailed reason.",
+    "importance": 0.500
+  },
+  {
+    "function": "create",
+    "reason": "The model identified this as a state-changing action, but did not provide a detailed reason.",
+    "importance": 0.500
+  },
+  {
+    "function": "delete",
+    "reason": "The model identified this as a state-changing action, but did not provide a detailed reason.",
+    "importance": 0.500
+  },
+  {
+    "function": "old_notes.txt",
+    "reason": "The model identified this as a state-changing action, but did not provide a detailed reason.",
+    "importance": 0.500
+  }
+]
+
+TEST: Negation
+INPUT: I will inspect the files. I will not delete or modify anything.
+OUTPUT:
+[]
