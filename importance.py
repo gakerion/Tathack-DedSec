@@ -90,15 +90,9 @@ def calculate_importance(
     if impact == "local":
         active_sum = base_weights["C"] + base_weights["R"] + base_weights["S"]
         weights = {
-<<<<<<< HEAD
             "C": base_weights["C"] / active_sum,
             "R": base_weights["R"] / active_sum,
             "S": base_weights["S"] / active_sum,
-=======
-            "C": base_weights["C"] / active_sum,  # ~0.499
-            "R": base_weights["R"] / active_sum,  # ~0.329
-            "S": base_weights["S"] / active_sum,  # ~0.172
->>>>>>> checkpoint-restore
             "E": 0.0,
         }
     else:
