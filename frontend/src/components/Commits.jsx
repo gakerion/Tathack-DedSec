@@ -38,6 +38,18 @@ function Commits() {
     }
 
     loadCommits();
+
+    window.addEventListener(
+      "honeygate:checkpoints-updated",
+      loadCommits
+    );
+
+    return () => {
+      window.removeEventListener(
+        "honeygate:checkpoints-updated",
+        loadCommits
+      );
+    };
   }, []);
 
   async function restore(commitHash) {
@@ -76,7 +88,7 @@ function Commits() {
       )}
 
       <nav aria-label="Checkpoint history">
-        {checkpoints.map((group, index) => (
+        {checkpoints.filter((group) => group.commits.length > 0).map((group, index) => (
           <details className="prompt-folder" key={index}>
             <summary>{group.prompt}</summary>
 
@@ -88,12 +100,10 @@ function Commits() {
                     className="commit-item"
                     onClick={() => restore(commit.commit_hash)}
                     disabled={restoring}
-                    title={`${commit.task} — Importance: ${
-                      commit.importance ?? "unknown"
-                    }`}
-                    aria-label={`Restore to ${commit.task}. Importance: ${
-                      commit.importance ?? "unknown"
-                    }`}
+                    title={`${commit.task} — Importance: ${commit.importance ?? "unknown"
+                      }`}
+                    aria-label={`Restore to ${commit.task}. Importance: ${commit.importance ?? "unknown"
+                      }`}
                   >
                     <span
                       className="commit-dot"

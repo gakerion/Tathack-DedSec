@@ -12,9 +12,19 @@ import uuid
 from pathlib import Path
 from importance import calculate_importance
 
+from helper import commit_changes, should_commit
+from driver import init_repo, get_repo
+
 BASE = Path(__file__).resolve().parent
 WORKSPACE = BASE / "workspace"
 CHECKPOINTS = BASE / "checkpoints"
+
+WORKSPACE.mkdir(parents=True, exist_ok=True)
+try:
+    repo = get_repo(str(WORKSPACE))
+except (FileNotFoundError, ValueError):
+    repo = init_repo(str(WORKSPACE))
+
 HELPER_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 AGENT_MODEL = "qwen3:4b"
 helper = None
@@ -30,7 +40,6 @@ def _tool(name, description, properties, required):
         "parameters": {"type": "object", "properties": properties,
                        "required": required, "additionalProperties": False},
     }}
-
 
 _TEXT = {"type": "string"}
 _HASH = {"type": "string", "description": "Optional SHA-256 from a previous read; block if the file changed."}
@@ -61,17 +70,14 @@ _OPERATIONS = {"create_text_file": "create", "read_text_file": "read",
                "edit_text_file": "edit", "overwrite_text_file": "overwrite",
                "delete_file": "delete", "move_file": "move"}
 
-
 def get_helper():
     global helper
     if helper is None:
-        # Load only when needed so API startup and tests do not load the model.
         from transformers import pipeline
         logger.info("Loading checkpoint helper")
         helper = pipeline("text-generation", model=HELPER_MODEL,
                           device_map="auto", dtype="auto")
     return helper
-
 
 def find_reasoning_quote(quote, reasoning):
     """Match quoted text exactly, except for whitespace differences."""
@@ -80,7 +86,6 @@ def find_reasoning_quote(quote, reasoning):
         return None
     match = re.search(r"\s+".join(re.escape(part) for part in parts), reasoning)
     return match.group(0) if match else None
-
 
 def normalize_checkpoint_json(content, agent_id, thinking_text):
     """Return descriptive suggestions as a list, never execution facts/scores."""
@@ -117,7 +122,6 @@ def normalize_checkpoint_json(content, agent_id, thinking_text):
             raise ValueError(f"Suggestion {index}: target must be text or null.")
         evidence = item["supporting_text"].strip()
         exact = find_reasoning_quote(evidence, thinking_text)
-        # Discard extra model fields, including counts, scores and recovery claims.
         normalized.append({
             "agent_id": agent_id, "operation": operation, "title": title,
             "target": target.strip() if target is not None else None,
@@ -125,7 +129,6 @@ def normalize_checkpoint_json(content, agent_id, thinking_text):
             "evidence_verified": exact is not None, "reason": item["reason"].strip(),
         })
     return normalized
-
 
 def suggest_checkpoint_marks(agent_id, thinking_text):
     if not isinstance(thinking_text, str) or not thinking_text.strip():
@@ -153,9 +156,7 @@ def suggest_checkpoint_marks(agent_id, thinking_text):
     raw = output[0]["generated_text"][-1]["content"]
     return normalize_checkpoint_json(raw, agent_id, thinking_text)
 
-
 def _validate_filename(filename):
-    # Flat filenames only, including on Windows (no device names or streams).
     reserved = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
     reserved.update(f"{prefix}{number}" for prefix in ("COM", "LPT") for number in "123456789¹²³")
     if (not filename.strip() or filename in {".", ".."}
@@ -165,23 +166,19 @@ def _validate_filename(filename):
         or filename.split(".", 1)[0].rstrip(" .").upper() in reserved):
         raise ValueError("Invalid filename; use a plain filename inside the workspace.")
 
-
 def _storage_directory(path):
     if path.is_symlink() or path.is_junction():
         raise ValueError("Storage directories must not be links or junctions.")
     path.mkdir(exist_ok=True)
     return path.resolve(strict=True)
 
-
 def _write_checkpoint(path, checkpoint):
-    # Verification and flush must finish BEFORE the target is opened for writing.
     with path.open("x", encoding="utf-8") as file:
         json.dump(checkpoint, file, indent=2)
         file.flush()
         os.fsync(file.fileno())
     if json.loads(path.read_text(encoding="utf-8")) != checkpoint:
         raise ValueError("Checkpoint verification failed.")
-
 
 def _workspace_path(workspace, filename):
     _validate_filename(filename)
@@ -193,7 +190,6 @@ def _workspace_path(workspace, filename):
     if path.exists() and not path.is_file():
         raise ValueError("Only regular files are supported, not directories.")
     return path
-
 
 def _snapshot(path):
     """Capture original bytes, not just a pathname or an unverified backup claim."""
@@ -207,7 +203,6 @@ def _snapshot(path):
         raise ValueError("Only regular files are supported.")
     if before.st_size > MAX_FILE_BYTES:
         raise ValueError("File exceeds the 1 MiB prototype limit.")
-    # Read at most the configured limit, even if another process grows the file.
     with path.open("rb") as file:
         data = file.read(MAX_FILE_BYTES + 1)
     after = path.stat()
@@ -220,18 +215,14 @@ def _snapshot(path):
             "sha256": hashlib.sha256(data).hexdigest(),
             "mode": stat.S_IMODE(before.st_mode)}
 
-
 def _bytes(snapshot):
     return base64.b64decode(snapshot["content_base64"], validate=True)
-
 
 def _assert_unchanged(path, expected):
     if _snapshot(path) != expected:
         raise ValueError(f"{path.name} changed after checkpointing; action blocked.")
 
-
 def _facts(operation, count, verified=False):
-    # Restoration remains future work even when original bytes are backed up.
     return {"affected_count": count, "impact": "local",
             "checkpoint_verified": verified, "backup_verified": verified,
             "automatic_restore_supported": False, "manual_restore_supported": False,
@@ -239,7 +230,6 @@ def _facts(operation, count, verified=False):
             **calculate_importance(operation, count, impact="local", backup_verified=verified,
                                    automatic_restore_supported=False,
                                    manual_restore_supported=False, reversible=True)}
-
 
 def _workspace_files(workspace):
     files = []
@@ -252,7 +242,6 @@ def _workspace_files(workspace):
             except ValueError:
                 continue
     return files
-
 
 def _execute_read(name, arguments, workspace, result):
     if name == "list_workspace_files":
@@ -303,9 +292,7 @@ def _execute_read(name, arguments, workspace, result):
     return {**result, "status": "executed", "matches": matches, "skipped": skipped,
             "truncated": truncated, **_facts("search", scanned)}
 
-
 def _replace_text(path, content, before):
-    """Stage new content before atomically replacing an existing target."""
     descriptor, temp_name = tempfile.mkstemp(prefix=".honeygate-", dir=path.parent)
     temporary = Path(temp_name)
     try:
@@ -321,7 +308,6 @@ def _replace_text(path, content, before):
             temporary.unlink(missing_ok=True)
         except OSError:
             logger.warning("Could not remove staging file %s", temporary.name)
-
 
 def _execute_tool(name, arguments):
     result = {"tool": name, "status": "blocked", "state_changed": False}
@@ -350,7 +336,6 @@ def _execute_tool(name, arguments):
             if WORKSPACE.is_symlink() or WORKSPACE.is_junction():
                 raise ValueError("Workspace must not be a link or junction.")
             workspace = WORKSPACE.resolve()
-            # Read-only tools do not create either storage directory.
             return _execute_read(name, arguments, workspace, result)
         workspace = _storage_directory(WORKSPACE)
         checkpoint_dir = _storage_directory(CHECKPOINTS)
@@ -392,7 +377,7 @@ def _execute_tool(name, arguments):
             content = text.replace(old, new).encode("utf-8")
         elif operation in {"create", "overwrite"}:
             if operation == "overwrite":
-                _bytes(before).decode("utf-8")  # Text overwrite must not destroy a binary file.
+                _bytes(before).decode("utf-8")
             content = arguments["content"].encode("utf-8")
         else:
             content = None
@@ -433,31 +418,38 @@ def _execute_tool(name, arguments):
             path.unlink()
             changed_count = 1
         else:
-            # Hard-link then unlink is portable and refuses an existing destination.
-            # If source unlink fails, BOTH names remain and we report a partial move.
             os.link(path, destination)
             changed_count = 1
             path.unlink()
             changed_count = 2
     except (OSError, ValueError) as error:
-        # Count our successful mutations, not changes made by other processes.
         return {**result, "status": "failed" if changed_count else "blocked",
                 "state_changed": bool(changed_count), "reason": str(error),
                 **_facts(operation, changed_count, verified=True)}
+    
     result.update(status="executed", state_changed=True)
     if replacements is not None:
         result["replacements"] = replacements
+
+    # Integrate Git commit safely
+    importance_score = facts["importance"]
+    try:
+        if should_commit(importance_score) is True:
+            target_name = arguments.get("filename", arguments.get("source", "file"))
+            commit_message = f"{operation.capitalize()} {target_name}"
+            git_hash = commit_changes(importance_score, repo, commit_message)
+            result["git_commit_hash"] = git_hash
+    except Exception as git_error:
+        print(f"\n--- GIT ERROR ---\n{git_error}\n-----------------\n")
+        result["git_error"] = str(git_error)
+
     return {**result, **facts}
 
-
 def execute_tool(name, arguments):
-    """Serialize tools within this process; this is not an OS-wide filesystem lock."""
     with _tool_lock:
         return _execute_tool(name, arguments)
 
-
 def run_ollama_test(text):
-    """Return a dictionary. Only the HTTP/CLI layer serializes it to JSON."""
     if not isinstance(text, str) or not text.strip():
         raise ValueError("Task must be nonempty text.")
     messages = [
@@ -511,7 +503,6 @@ def run_ollama_test(text):
             packet["output"] = "Stopped at the agent turn limit."
             packet["agent_error"] = "Agent turn limit reached."
     except Exception as error:
-        # Preserve outcomes if a later model call fails after modifying files.
         packet["agent_error"] = str(error)
     packet["thinking"] = "\n\n".join(reasoning_parts)
     if packet["thinking"].strip():
@@ -522,7 +513,6 @@ def run_ollama_test(text):
         except Exception as error:
             packet["helper_error"] = str(error)
     return packet
-
 
 if __name__ == "__main__":
     task = input("Enter your task: ")

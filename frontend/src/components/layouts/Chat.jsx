@@ -56,7 +56,7 @@ function Chat() {
 
       const data = await response.json();
 
-      
+
 
       setMessages((previous) => [
         ...previous,
@@ -71,8 +71,12 @@ function Chat() {
     } catch (error) {
       setError(error.message);
     } finally {
-      setLoading(false);
-    }
+  setLoading(false);
+
+  window.dispatchEvent(
+    new Event("honeygate:checkpoints-updated")
+  );
+}
   }
 
   return (
