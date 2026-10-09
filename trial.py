@@ -11,10 +11,6 @@ HELPER_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 AGENT_MODEL = "qwen3:4b"
 OUTPUT_FILE = "configuration_plan_checkpoints.txt"
 
-# Leave empty to infer operation names.
-# Otherwise, enter the exact names of your actual backend functions.
-AVAILABLE_FUNCTIONS = []
-
 helper = None
 
 GENERATION_CONFIG = GenerationConfig(
