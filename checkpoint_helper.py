@@ -5,7 +5,7 @@ from pathlib import Path
 import helper
 import ollama
 from transformers import GenerationConfig, pipeline
-
+from importance import calculate_importance
 
 HELPER_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 AGENT_MODEL = "qwen3:4b"
@@ -136,16 +136,28 @@ def normalize_checkpoint_json(
         ):
             raise ValueError("Target must be nonempty text or null.")
 
+        
+        operation = checkpoint["function"].strip().lower()
 
+        importance_result = calculate_importance(
+            operation=operation,
+            affected_count=1,
+            impact="unknown",
+            backup_verified=False,
+            automatic_restore_supported=False,
+            manual_restore_supported=False,
+            reversible=True,
+        )
 
         normalized.append({
             "agent_id": agent_id,
-            "function": function,
+            "function": operation,
             "target": target,
             "supporting_text": evidence,
             "evidence_verified": evidence_verified,
             "reason": checkpoint["reason"].strip(),
-            "importance": normalize_importance(checkpoint["importance"]),
+            "importance": importance_result["importance"],
+            "importance_details": importance_result,
         })
 
     serialized = json.dumps(normalized, indent=2, ensure_ascii=False)
