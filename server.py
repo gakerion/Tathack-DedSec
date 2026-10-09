@@ -1,4 +1,5 @@
 from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 import time
 
 
@@ -11,13 +12,40 @@ def aiModel(prompt: str, file_content: bytes | None = None):
 
     return "Bro here is your response " + prompt + file_text
 
+
+checkpoints = [
+    {
+        "task": "Make background black",
+        "commit_hash": "1abcde",
+    },
+    {
+        "task": "Make bird orange",
+        "commit_hash": "2abcde",
+    },
+    {
+        "task": "Make score to top left",
+        "commit-hash": "3abcde",
+    }
+]
+
+
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
 
-@app.get("/")
-def startModel():
-    return {"message": "HoneyGate API is running"}
+# @app.get("/")
+# def startModel():
+#     return {"message": "HoneyGate API is running"}
 
+
+@app.get("/checkpoints")
+def get_checkpoints():
+    return {"checkpoints": checkpoints}
 
 @app.post("/")
 def prompt(
@@ -31,3 +59,8 @@ def prompt(
         file.file.close()
 
     return {"result": aiModel(prompt, file_content)}
+
+
+@app.post("/restore")
+def restore_checkpoint(commit_hash: str):
+    return restore_commit(commit_hash)
