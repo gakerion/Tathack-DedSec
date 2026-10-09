@@ -1,8 +1,8 @@
 import { useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import "./Chat.css";
 import logoIcon from "../../assets/logo-icon.png";
 import userIcon from "../../assets/user.png";
-import { useOutletContext } from "react-router-dom";
 
 const API = "http://127.0.0.1:8000";
 
@@ -12,7 +12,7 @@ function Chat() {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [copiedId, setCopiedId] = useState(null);
+
   const { setHasChat } = useOutletContext();
 
   async function handleSubmit(event) {
@@ -20,6 +20,8 @@ function Chat() {
 
     const text = prompt.trim();
     if (!text || loading) return;
+
+    setHasChat(true);
 
     setMessages((previous) => [
       ...previous,
@@ -72,7 +74,9 @@ function Chat() {
   }
 
   return (
-    <section className="chat">
+    <section
+      className={`chat ${messages.length === 0 ? "chat--empty" : ""}`}
+    >
       <div className="chat-messages" aria-live="polite">
         {messages.length === 0 && (
           <div className="chat-welcome">
@@ -140,7 +144,9 @@ function Chat() {
           />
 
           <label
-            className={`chat-file-button ${loading ? "is-disabled" : ""}`}
+            className={`chat-file-button ${
+              loading ? "is-disabled" : ""
+            }`}
             title="Attach a file"
           >
             <span aria-hidden="true">+</span>

@@ -32,8 +32,6 @@
 
 .chat .chat-welcome-logo {
   display: block;
-  position: absolute;
-  bottom: 130px;
   width: 360px;
   max-width: 70%;
   max-height: 80%;
@@ -41,6 +39,43 @@
   object-fit: contain;
   opacity: 0.25;
 }
+
+/* Empty chat */
+
+.chat--empty {
+  max-width: 1060px;
+}
+
+.chat--empty .chat-messages {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  overflow: hidden;
+}
+
+.chat--empty .chat-welcome {
+  position: absolute;
+  inset: 0;
+  align-items: flex-end;
+}
+
+.chat--empty .chat-welcome-logo {
+  width: 450px;
+  max-width: 70%;
+  max-height: 100%;
+  height: auto;
+  opacity: 0.15;
+  transform: translateY(50px);
+}
+
+.chat--empty .chat-form {
+  z-index: 1;
+  min-height: 160px;
+}
+
+/* Messages */
 
 .chat-message {
   display: flex;
@@ -129,6 +164,8 @@
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+
+/* Input card */
 
 .chat-form {
   position: relative;
@@ -265,8 +302,10 @@
   box-shadow: 0 2px 0 #ff2222;
 }
 
+/* Scrollbar */
+
 .chat-messages {
-  scrollbar-width: auto;
+  scrollbar-width: thin;
   scrollbar-color: #ff2222 #fff;
 }
 
@@ -289,4 +328,6 @@
 
 .chat-messages::-webkit-scrollbar-button {
   display: none;
+  width: 0;
+  height: 0;
 }
