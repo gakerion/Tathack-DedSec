@@ -1,0 +1,22 @@
+[
+  {
+    "function": "inspect_project_settings",
+    "reason": "To understand the current state of the project, specifically the app_config.json file.",
+    "importance": 0.500
+  },
+  {
+    "function": "create_backup_of_app_config_json",
+    "reason": "Create a backup of the current app_config.json file to ensure we have a reference point before making changes.",
+    "importance": 0.700
+  },
+  {
+    "function": "update_api_endpoint_in_app_config_json",
+    "reason": "Change the API endpoint in the app_config.json file to reflect the new endpoint URL.",
+    "importance": 0.800
+  },
+  {
+    "function": "move_old_configuration_to_archive_folder",
+    "reason": "Move the backup of the old configuration (the original app_config.json) to the archive folder.",
+    "importance": 0.900
+  }
+]
