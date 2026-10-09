@@ -2,7 +2,6 @@ import json
 import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
-import helper
 import ollama
 from transformers import GenerationConfig, pipeline
 from importance import calculate_importance
@@ -101,7 +100,16 @@ def normalize_checkpoint_json(
             raise ValueError(f"Checkpoint {index} must be an object.")
 
         required = {
-            "function", "target", "supporting_text", "reason", "importance"
+            "operation",
+            "target",
+            "affected_count",
+            "impact",
+            "backup_verified",
+            "automatic_restore_supported",
+            "manual_restore_supported",
+            "reversible",
+            "supporting_text",
+            "reason",
         }
 
         if not required.issubset(checkpoint):
@@ -110,14 +118,51 @@ def normalize_checkpoint_json(
                 f"Checkpoint {index} is missing: {sorted(missing)}"
             )
 
-        for field in ("function", "supporting_text", "reason"):
+        for field in ("operation", "supporting_text", "reason"):
             value = checkpoint[field]
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(
                     f"Checkpoint {index}: {field} must be nonempty text."
                 )
 
-        function = checkpoint["function"].strip()
+        operation = checkpoint["operation"].strip().lower()
+        if operation not in {
+            "read",
+            "search",
+            "create",
+            "move",
+            "edit",
+            "overwrite",
+            "delete",
+        }:
+            raise ValueError(
+                f"Checkpoint {index}: invalid operation {operation!r}."
+            )
+
+        affected_count = checkpoint["affected_count"]
+        if type(affected_count) is not int or affected_count < 0:
+            raise ValueError(
+                f"Checkpoint {index}: affected_count must be a "
+                "non-negative integer."
+            )
+
+        impact = checkpoint["impact"]
+        if impact not in {"local", "shared", "external", "unknown"}:
+            raise ValueError(
+                f"Checkpoint {index}: invalid impact {impact!r}."
+            )
+
+        for field in (
+            "backup_verified",
+            "automatic_restore_supported",
+            "manual_restore_supported",
+            "reversible",
+        ):
+            if type(checkpoint[field]) is not bool:
+                raise ValueError(
+                    f"Checkpoint {index}: {field} must be boolean."
+                )
+
         target = checkpoint["target"]
         evidence = checkpoint["supporting_text"].strip()
         exact_evidence = find_reasoning_quote(evidence, thinking_text)
@@ -136,28 +181,29 @@ def normalize_checkpoint_json(
         ):
             raise ValueError("Target must be nonempty text or null.")
 
-        
-        operation = checkpoint["function"].strip().lower()
-
         importance_result = calculate_importance(
             operation=operation,
-            affected_count=1,
-            impact="unknown",
-            backup_verified=False,
-            automatic_restore_supported=False,
-            manual_restore_supported=False,
-            reversible=True,
+            affected_count=affected_count,
+            impact=impact,
+            backup_verified=checkpoint["backup_verified"],
+            automatic_restore_supported=(
+                checkpoint["automatic_restore_supported"]
+            ),
+            manual_restore_supported=checkpoint["manual_restore_supported"],
+            reversible=checkpoint["reversible"],
         )
 
         normalized.append({
             "agent_id": agent_id,
-            "function": operation,
+            "operation": operation,
             "target": target,
             "supporting_text": evidence,
             "evidence_verified": evidence_verified,
             "reason": checkpoint["reason"].strip(),
             "importance": importance_result["importance"],
-            "importance_details": importance_result,
+            "importance_constants": importance_result["constants"],
+            "recovery_status": importance_result["recovery_status"],
+            "provisional": importance_result["provisional"],
         })
 
     serialized = json.dumps(normalized, indent=2, ensure_ascii=False)
@@ -185,7 +231,7 @@ def suggest_checkpoint_marks(
         "Identify explicitly planned file operations. "
         "Classify each operation as one of: "
         "read, search, create, move, edit, overwrite, delete. "
-        "Return only state-changing operations; omit read and search. "
+        "Return every explicit operation, including read and search. "
         "Exclude negated actions, abandoned plans, hypothetical alternatives, "
         "and quoted instructions. "
         "Explicit plans for later execution count as planned operations. "
@@ -193,10 +239,16 @@ def suggest_checkpoint_marks(
         "Return ONLY a valid JSON array. Each object must contain: "
         "operation: one of the allowed operation names; "
         "target: the affected file explicitly named, or null if unknown; "
+        "affected_count: a non-negative integer resource count; "
+        "impact: one of local, shared, external, unknown; "
+        "backup_verified: a boolean; "
+        "automatic_restore_supported: a boolean; "
+        "manual_restore_supported: a boolean; "
+        "reversible: a boolean; "
         "supporting_text: a short quote copied directly from the reasoning. "
         "Do not invent targets or operations. "
         "Do not include importance scores or Markdown fences. "
-        "Return [] if no state-changing operation is identified."
+        "Return [] if no explicit operation is identified."
     )
     
     user_text = f"Agent: {agent_id}\n"
