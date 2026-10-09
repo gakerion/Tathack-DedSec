@@ -1,3 +1,32 @@
+import os
+import shutil
+from pathlib import Path
+
+
+def configure_git_executable() -> None:
+    if os.environ.get("GIT_PYTHON_GIT_EXECUTABLE"):
+        return
+
+    git_executable = shutil.which("git")
+    if git_executable is None and os.name == "nt":
+        for candidate in (
+            Path(os.environ.get("ProgramFiles", "")) / "Git" / "cmd" / "git.exe",
+            Path(os.environ.get("ProgramFiles", "")) / "Git" / "bin" / "git.exe",
+            Path(os.environ.get("ProgramFiles(x86)", ""))
+            / "Git"
+            / "cmd"
+            / "git.exe",
+        ):
+            if candidate.is_file():
+                git_executable = str(candidate)
+                break
+
+    if git_executable is not None:
+        os.environ["GIT_PYTHON_GIT_EXECUTABLE"] = git_executable
+
+
+configure_git_executable()
+
 import git
 
 from driver import (
@@ -56,7 +85,7 @@ def main() -> None:
                 print(f"Repository opened at: {repo.working_tree_dir}")
 
             elif choice == "3":
-                print(require_repo(repo).git.status("--short", "--branch"))
+                print(get_repo_status(require_repo(repo)))
 
             elif choice == "4":
                 diff = get_repo_diff(require_repo(repo))
