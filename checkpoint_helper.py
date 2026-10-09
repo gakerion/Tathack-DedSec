@@ -5,12 +5,37 @@ from pathlib import Path
 import ollama
 from transformers import GenerationConfig, pipeline
 from importance import calculate_importance
+import hashlib
+import uuid
+
+BASE = Path(__file__).resolve().parent
+WORKSPACE = BASE / "workspace"
+CHECKPOINTS = BASE / "checkpoints"
+
+WORKSPACE.mkdir(exist_ok=True)
+CHECKPOINTS.mkdir(exist_ok=True)
 
 HELPER_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 AGENT_MODEL = "qwen3:4b"
 OUTPUT_FILE = "configuration_plan_checkpoints.txt"
 
 helper = None
+
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "create_text_file",
+        "description": "Create a new text file in the workspace.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string"},
+                "content": {"type": "string"},
+            },
+            "required": ["filename", "content"],
+        },
+    },
+}]
 
 GENERATION_CONFIG = GenerationConfig(
     max_new_tokens=1024,
@@ -292,46 +317,181 @@ def save_checkpoint_marks(marks, output_file=OUTPUT_FILE):
     print("\nSaved to:", path, flush=True)
     return path
 
+def execute_tool(name, arguments):
+    if name != "create_text_file":
+        return {"status": "blocked", "reason": "Unknown tool"}
 
-def run_ollama_test(text):
-    print("Requesting response from Ollama...", flush=True)
+    if (
+        not isinstance(arguments, dict)
+        or set(arguments) != {"filename", "content"}
+        or not all(isinstance(value, str) for value in arguments.values())
+    ):
+        return {"status": "blocked", "reason": "Invalid arguments"}
 
-    response = ollama.chat(
-        model=AGENT_MODEL,
-        think=True,
-        keep_alive=0,
-        options={"num_ctx": 4096},
-        messages=[{"role": "user", "content": text}],
-    )
+    filename = arguments["filename"]
 
-    thinking = getattr(response.message, "thinking", None) or ""
-    normal_output = getattr(response.message, "content", None) or ""
+    if (
+        not filename.strip()
+        or filename in {".", ".."}
+        or any(character in filename for character in "/\\:\x00")
+    ):
+        return {"status": "blocked", "reason": "Invalid filename"}
 
-    # print("\nAGENT REASONING:\n", thinking, flush=True)
-    # print("\nNORMAL OUTPUT:\n", normal_output, flush=True)
+    target = WORKSPACE / filename
 
-    marks = None
+    if target.exists() or target.is_symlink():
+        return {
+            "status": "blocked",
+            "reason": "File already exists; this tool only creates new files",
+        }
 
-    if thinking.strip():
-        marks = suggest_checkpoint_marks(
-            agent_id="configuration_agent",
-            thinking_text=thinking,
-        )
-        save_checkpoint_marks(marks)
-    else:
-        print("No reasoning returned; skipping checkpoint extraction.")
+    content = arguments["content"].encode("utf-8")
+    checkpoint_id = uuid.uuid4().hex
 
-    return {
-        "thinking": thinking,
-        "output": normal_output,
-        "checkpoint_marks": marks,
+    # A new file's previous state is "did not exist".
+    checkpoint = {
+        "checkpoint_id": checkpoint_id,
+        "operation": "create",
+        "filename": filename,
+        "existed_before": False,
+        "expected_after_hash": hashlib.sha256(content).hexdigest(),
     }
 
-    
+    checkpoint_path = CHECKPOINTS / f"{checkpoint_id}.json"
+    checkpoint_path.write_text(
+        json.dumps(checkpoint, indent=2),
+        encoding="utf-8",
+    )
 
-if __name__ == "__main__":
+    saved = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+
+    if saved != checkpoint:
+        raise ValueError("Checkpoint verification failed.")
+
+    importance = calculate_importance(
+        operation="create",
+        affected_count=1,
+        impact="local",
+        backup_verified=True,
+        automatic_restore_supported=False,
+        manual_restore_supported=False,
+        reversible=True,
+    )
+
+    if not isinstance(importance, dict):
+        raise ValueError("Importance calculation returned an invalid result.")
+
+    # Exclusive creation prevents overwriting a file created meanwhile.
     try:
-        run_ollama_test()
+        with target.open("xb") as file:
+            file.write(content)
+    except FileExistsError:
+        return {
+            "status": "blocked",
+            "reason": "File was created by another process",
+            "checkpoint_id": checkpoint_id,
+        }
+
+    return {
+        "status": "executed",
+        "operation": "create",
+        "target": filename,
+        "checkpoint_id": checkpoint_id,
+        **importance,
+    }
+
+
+def run_ollama_test(text):
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Use create_text_file when asked to create a text file. "
+                "Do not claim success until the tool returns executed. "
+                "Existing files cannot be overwritten."
+            ),
+        },
+        {"role": "user", "content": text},
+    ]
+
+    reasoning_parts = []
+    actions = []
+    normal_output = ""
+
+    for turn in range(6):
+        print(f"Agent turn {turn + 1}...", flush=True)
+
+        response = ollama.chat(
+            model=AGENT_MODEL,
+            think=True,
+            keep_alive=0,
+            tools=tools,
+            options={"num_ctx": 4096},
+            messages=messages,
+        )
+
+        message = response.message
+        messages.append(message.model_dump(exclude_none=True))
+
+        thinking = getattr(message, "thinking", None) or ""
+        if thinking:
+            reasoning_parts.append(thinking)
+
+        calls = getattr(message, "tool_calls", None) or []
+
+        if not calls:
+            normal_output = message.content or ""
+            break
+
+        for call in calls:
+            result = execute_tool(
+                call.function.name,
+                call.function.arguments,
+            )
+
+            print("ACTION RESULT:", result, flush=True)
+            actions.append(result)
+
+            messages.append({
+                "role": "tool",
+                "tool_name": call.function.name,
+                "content": json.dumps(result),
+            })
+    else:
+        normal_output = "Stopped at the agent turn limit."
+
+    thinking_text = "\n\n".join(reasoning_parts)
+
+    # Save actual execution results before running the helper.
+    packet = {
+        "thinking": thinking_text,
+        "output": normal_output,
+        "actions": actions,
+        "checkpoint_suggestions": None,
+    }
+
+    save_checkpoint_marks(json.dumps(packet, indent=2))
+
+    if thinking_text.strip():
+        try:
+            marks = suggest_checkpoint_marks(
+                agent_id="configuration_agent",
+                thinking_text=thinking_text,
+            )
+            packet["checkpoint_suggestions"] = json.loads(marks)
+        except Exception as error:
+            packet["helper_error"] = str(error)
+
+    save_checkpoint_marks(json.dumps(packet, indent=2))
+    print("\nMODEL ANSWER:\n", normal_output, flush=True)
+
+    return packet
+    
+if __name__ == "__main__":
+    task = input("Enter your task: ")
+
+    try:
+        run_ollama_test(task)
     except Exception as error:
-        print(f"\nERROR: {error}", flush=True)
+        print(f"ERROR: {error}", flush=True)
         raise

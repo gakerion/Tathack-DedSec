@@ -86,7 +86,7 @@ def calculate_importance(
         + 0.30 * constants["R"]
         + 0.20 * constants["S"]
         + 0.15 * constants["E"]
-    )
+    ) 
 
     return {
         "importance": round(score, 3),

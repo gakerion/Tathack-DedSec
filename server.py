@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import time
+from checkpoint_helper import run_ollama_test
 
 
 def aiModel(prompt: str, file_content: bytes | None = None):
@@ -87,7 +88,7 @@ def prompt(
         file_content = file.file.read()
         file.file.close()
 
-    return {"result": aiModel(prompt, file_content)}
+    return {"result": run_ollama_test(prompt)["output"]}
 
 
 @app.post("/restore")
