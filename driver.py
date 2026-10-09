@@ -89,6 +89,7 @@ def repo_hard_reset(repo: git.Repo, commit_hash: str) -> None:
     except git.GitCommandError as error:
         raise ValueError(f"Failed to reset to commit {commit_hash}: {error}") from error
 
+
 def get_history(repo: git.Repo, limit: int = 20) -> list[dict[str, str]]:
     if limit < 1:
         raise ValueError("History limit must be positive.")
