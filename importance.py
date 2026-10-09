@@ -37,7 +37,6 @@ def calculate_recovery(
 
     return {"status": "unknown", "value": 1.0}
 
-
 def calculate_importance(
     operation,
     affected_count,

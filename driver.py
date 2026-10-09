@@ -105,6 +105,48 @@ def get_history(repo: git.Repo, limit: int = 20) -> list[dict[str, str]]:
         for commit in repo.iter_commits(max_count=limit)
     ]
 
+def get_changed_lines_from_last_commit_and_unstaged(
+    repo: git.Repo,
+) -> int:
+    
+    def count_numstat_lines(numstat_output: str) -> int:
+        total = 0
+
+        for line in numstat_output.splitlines():
+            parts = line.split("\t")
+
+            if len(parts) < 2:
+                continue
+
+            additions, deletions = parts[0], parts[1]
+
+            if additions.isdigit():
+                total += int(additions)
+
+            if deletions.isdigit():
+                total += int(deletions)
+
+        return total
+
+    try:
+        last_commit_changes = repo.git.show(
+            "--numstat",
+            "--format=",
+            "HEAD",
+        )
+
+        unstaged_changes = repo.git.diff(
+            "--numstat",
+        )
+    except git.GitCommandError as error:
+        raise ValueError(
+            f"Unable to calculate changed lines: {error}"
+        ) from error
+
+    return (
+        count_numstat_lines(last_commit_changes)
+        + count_numstat_lines(unstaged_changes)
+    )
 
 def push_git(
     repo_path: str,
