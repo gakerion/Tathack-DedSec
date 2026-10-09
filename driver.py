@@ -1,4 +1,6 @@
 from pathlib import Path
+import os
+import tempfile
 
 import git
 from git import InvalidGitRepositoryError, NoSuchPathError
@@ -73,6 +75,41 @@ def stage_files(repo: git.Repo, file_paths: list[str]) -> None:
 
 def stage_all(repo: git.Repo) -> None:
     repo.git.add("--all")
+
+
+def create_scoped_commit(
+    repo: git.Repo,
+    file_paths: list[str],
+    message: str,
+) -> str:
+    if not file_paths:
+        raise ValueError("At least one file path is required.")
+
+    if not message.strip():
+        raise ValueError("Commit message cannot be empty.")
+
+    file_descriptor, temporary_index = tempfile.mkstemp(
+        prefix="honeygate-index-",
+        suffix=".tmp",
+    )
+    os.close(file_descriptor)
+    os.unlink(temporary_index)
+
+    try:
+        with repo.git.custom_environment(GIT_INDEX_FILE=temporary_index):
+            try:
+                repo.git.read_tree("HEAD")
+            except git.GitCommandError:
+                repo.git.read_tree("--empty")
+
+            repo.git.add("--", *file_paths)
+            repo.git.commit("-m", message.strip())
+            return repo.git.rev_parse("HEAD").strip()
+    finally:
+        try:
+            os.unlink(temporary_index)
+        except FileNotFoundError:
+            pass
 
 
 def create_commit(repo: git.Repo, message: str) -> str:

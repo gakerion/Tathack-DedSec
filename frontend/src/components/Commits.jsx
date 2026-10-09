@@ -14,7 +14,7 @@ function getImportanceColor(importance) {
 }
 
 function Commits() {
-  const [checkpoints, setCheckpoints] = useState([]);
+  const [commits, setCommits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [restoring, setRestoring] = useState(false);
   const [message, setMessage] = useState("");
@@ -22,14 +22,14 @@ function Commits() {
   useEffect(() => {
     async function loadCommits() {
       try {
-        const response = await fetch(`${API}/checkpoints`);
+        const response = await fetch(`${API}/git-history`);
 
         if (!response.ok) {
-          throw new Error("Could not load checkpoints");
+          throw new Error("Could not load Git history");
         }
 
         const data = await response.json();
-        setCheckpoints(data.checkpoints);
+        setCommits(data.commits);
       } catch (error) {
         setMessage(error.message);
       } finally {
@@ -65,11 +65,13 @@ function Commits() {
       );
 
       if (!response.ok) {
-        throw new Error("Restore failed");
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail ?? "Restore failed");
       }
 
       const data = await response.json();
       setMessage(data.message ?? "Restore request completed");
+      window.dispatchEvent(new Event("honeygate:checkpoints-updated"));
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -79,51 +81,43 @@ function Commits() {
 
   return (
     <aside className="checkpoint-sidebar">
-      <h2>Checkpoints</h2>
+      <h2>Commit history</h2>
 
-      {loading && <p>Loading...</p>}
+      {loading && <p>Loading Git history...</p>}
 
-      {!loading && checkpoints.length === 0 && (
-        <p>No checkpoints yet.</p>
+      {!loading && commits.length === 0 && (
+        <p>No Git commits yet.</p>
       )}
 
       <nav aria-label="Checkpoint history">
-        {checkpoints.filter((group) => group.commits.length > 0).map((group, index) => (
-          <details className="prompt-folder" key={index}>
-            <summary>{group.prompt}</summary>
+        <ul className="commit-list">
+          {commits.map((commit) => (
+            <li key={commit.commit_hash}>
+              <button
+                type="button"
+                className="commit-item"
+                onClick={() => restore(commit.commit_hash)}
+                disabled={restoring}
+                title={`${commit.task} — ${commit.commit_hash}`}
+                aria-label={`Restore to ${commit.task}`}
+              >
+                <span
+                  className="commit-dot"
+                  style={{
+                    backgroundColor: getImportanceColor(
+                      commit.importance
+                    ),
+                  }}
+                  aria-hidden="true"
+                />
 
-            <ul className="commit-list">
-              {group.commits.map((commit) => (
-                <li key={commit.commit_hash}>
-                  <button
-                    type="button"
-                    className="commit-item"
-                    onClick={() => restore(commit.commit_hash)}
-                    disabled={restoring}
-                    title={`${commit.task} — Importance: ${commit.importance ?? "unknown"
-                      }`}
-                    aria-label={`Restore to ${commit.task}. Importance: ${commit.importance ?? "unknown"
-                      }`}
-                  >
-                    <span
-                      className="commit-dot"
-                      style={{
-                        backgroundColor: getImportanceColor(
-                          commit.importance
-                        ),
-                      }}
-                      aria-hidden="true"
-                    />
-
-                    <span className="commit-task">
-                      {commit.task}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </details>
-        ))}
+                <span className="commit-task">
+                  {commit.task}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
       </nav>
 
       {restoring && <p role="status">Restoring...</p>}

@@ -1,9 +1,5 @@
 import math
 import json
-import driver
-import git
-
-repo = git.Repo(".//workspace")  # Assuming the current directory is a Git repository
 
 OPERATION_SEVERITY = {
     "read": 0.0,
@@ -50,17 +46,30 @@ def calculate_importance(
     manual_restore_supported=False,
     reversible=True,
     scope_threshold=10,
+    weights=None,
 ):
     if operation not in OPERATION_SEVERITY or impact not in EXTERNAL_IMPACT:
-        return 0
+        raise ValueError("Invalid operation or impact.")
 
     if (
-        not isinstance(affected_count, (int, float))
+        type(affected_count) not in (int, float)
+        or not math.isfinite(affected_count)
         or affected_count < 0
-        or not isinstance(scope_threshold, (int, float))
+        or type(scope_threshold) not in (int, float)
+        or not math.isfinite(scope_threshold)
         or scope_threshold < 1
+        or weights is not None
+        or any(
+            type(value) is not bool
+            for value in (
+                backup_verified,
+                automatic_restore_supported,
+                manual_restore_supported,
+                reversible,
+            )
+        )
     ):
-        raise ValueError("Invalid resource count or scope threshold.")
+        raise ValueError("Invalid importance calculation arguments.")
 
     recovery = calculate_recovery(
         backup_verified,
@@ -75,29 +84,21 @@ def calculate_importance(
         "M": int(modifies),
         "C": OPERATION_SEVERITY[operation],
         "R": recovery["value"],
-        "S": driver.change_commit_unstaged(repo),
+        "S": min(
+            1.0,
+            math.log1p(affected_count) / math.log1p(scope_threshold),
+        ),
         "E": EXTERNAL_IMPACT[impact],
     }
 
-    # Base AHP-derived weights
     base_weights = {
-        "C": 0.457,
-        "R": 0.301,
-        "S": 0.158,
-        "E": 0.084,
+        "C": 0.35,
+        "R": 0.30,
+        "S": 0.20,
+        "E": 0.15,
     }
 
-    # Dynamic re-normalization when E = 0 (controlled local environment)
-    if impact == "local":
-        active_sum = base_weights["C"] + base_weights["R"] + base_weights["S"]
-        weights = {
-            "C": base_weights["C"] / active_sum,
-            "R": base_weights["R"] / active_sum,
-            "S": base_weights["S"] / active_sum,
-            "E": 0.0,
-        }
-    else:
-        weights = base_weights
+    weights = base_weights
 
     score = constants["M"] * (
         weights["C"] * constants["C"]

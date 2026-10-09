@@ -1,13 +1,15 @@
 from contextlib import asynccontextmanager
 from copy import deepcopy
+import re
 from threading import Lock
 
 import ollama
+import git
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from checkpoint_helper import AGENT_MODEL, WORKSPACE, get_helper, run_ollama_test
-from driver import get_repo, repo_hard_reset
+from driver import get_history, get_repo, repo_hard_reset
 
 
 @asynccontextmanager
@@ -64,11 +66,44 @@ def get_checkpoints():
         return {"checkpoints": deepcopy(checkpoints), "history_persistent": False}
 
 
+@app.get("/git-history")
+def get_git_history():
+    try:
+        repository = get_repo(str(WORKSPACE))
+        history = get_history(repository, limit=100)
+    except (FileNotFoundError, ValueError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Git history is unavailable: {error}",
+        ) from error
+
+    return {
+        "commits": [
+            {
+                "task": item["message"],
+                "commit_hash": item["hash"],
+                "message": item["message"],
+                "checkpoint_id": None,
+                "importance": None,
+                "restore_supported": True,
+            }
+            for item in history
+        ],
+        "history_persistent": True,
+    }
+
+
 @app.post("/chat")
 def prompt(
     prompt: str = Form(...),
     file: UploadFile | None = File(None),
 ):
+    if file is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="File attachments are not implemented.",
+        )
+
     file_content = None
     file_name = None
 
@@ -107,7 +142,11 @@ def prompt(
         )
         group = {"prompt": prompt, "commits": [], "actions": packet["actions"]}
         for action in packet["actions"]:
-            if action["status"] == "executed" and "checkpoint_id" in action:
+            if (
+                action["status"] == "executed"
+                and "checkpoint_id" in action
+                and "git_commit_hash" in action
+            ):
                 group["commits"].append(
                     {
                         "task": f"{action['operation'].capitalize()} {action['target']}"
@@ -116,12 +155,10 @@ def prompt(
                             if "destination" in action
                             else ""
                         ),
-                        "commit_hash": action.get(
-                            "git_commit_hash", action["checkpoint_id"]
-                        ),
+                        "commit_hash": action["git_commit_hash"],
                         "checkpoint_id": action["checkpoint_id"],
                         "importance": action["importance"],
-                        "restore_supported": False,
+                        "restore_supported": True,
                     }
                 )
         with history_lock:
@@ -132,13 +169,41 @@ def prompt(
 
 @app.post("/restore")
 def restore_checkpoint(commit_hash: str):
-    try:
-        # Load the workspace repository
-        repo = get_repo(str(WORKSPACE))
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", commit_hash or ""):
+        raise HTTPException(
+            status_code=422,
+            detail="commit_hash must be a 40-character Git commit hash.",
+        )
 
-        # Perform the hard reset to the specific Git commit
-        repo_hard_reset(repo, commit_hash)
+    with model_lock:
+        try:
+            repository = get_repo(str(WORKSPACE))
+            commit = repository.commit(commit_hash)
+        except (FileNotFoundError, ValueError, git.BadName, git.BadObject) as error:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Git commit was not found: {commit_hash}",
+            ) from error
 
-        return {"message": f"Successfully restored to commit {commit_hash[:7]}"}
-    except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Failed to restore: {str(error)}")
+        if repository.is_dirty(untracked_files=True):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Workspace has uncommitted changes. Commit or remove them "
+                    "before restoring an earlier commit."
+                ),
+            )
+
+        try:
+            repo_hard_reset(repository, commit.hexsha)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Could not restore commit {commit.hexsha}: {error}",
+            ) from error
+
+    return {
+        "message": f"Workspace restored to {commit.hexsha}.",
+        "commit_hash": commit.hexsha,
+        "task": commit.message.strip(),
+    }

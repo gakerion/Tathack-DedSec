@@ -1,17 +1,13 @@
 import json
-from typing import Any
 import git
 import math
 
-# Removed get_repo_diff from this import list
 from driver import (
-    create_commit,
+    create_scoped_commit,
     get_commit_diff,
     get_history,
     get_repo,
     get_repo_status,
-    stage_all,
-    stage_files,
     repo_hard_reset,
 )
 
@@ -37,7 +33,9 @@ def should_commit(imp: float) -> bool:
     return False
 
 
-def commit_changes(imp: float, repo: git.Repo, commit_message: str) -> Any:
-    stage_all(repo)
-    commit_hash = create_commit(repo, commit_message)
-    return commit_hash
+def commit_changes(
+    repo: git.Repo,
+    affected_paths: list[str],
+    commit_message: str,
+) -> str:
+    return create_scoped_commit(repo, affected_paths, commit_message)
