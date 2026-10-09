@@ -11,6 +11,7 @@ from threading import Lock
 import uuid
 from pathlib import Path
 from importance import calculate_importance
+import ollama
 
 from helper import commit_changes, should_commit
 from driver import init_repo, get_repo , push_git
@@ -33,8 +34,25 @@ try:
 except (FileNotFoundError, ValueError):
     repo = init_repo(str(WORKSPACE))
 
-HELPER_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
-AGENT_MODEL = "qwen3:4b"
+
+AGENT_MODEL = "qwen3.5:9b-q4_K_M"
+HELPER_MODEL = "qwen3:4b-instruct-2507-q4_K_M"
+AGENT_MODEL = "qwen3.5:9b-q4_K_M"
+HELPER_MODEL = "qwen3:4b-instruct-2507-q4_K_M"
+
+AGENT_OPTIONS = {
+    "num_ctx": 8192,
+    "num_predict": 4096,
+    "num_batch": 128,
+    "temperature": 0.6,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 0.0,
+    "repeat_penalty": 1.0,
+}
+
+
 helper = None
 logger = logging.getLogger(__name__)
 MAX_FILE_BYTES = 1024 * 1024
@@ -156,12 +174,34 @@ def suggest_checkpoint_marks(agent_id, thinking_text):
         "Do not invent details. Never supply importance, counts, impact, or recovery facts; "
         "only the backend determines these. Return [] if there are no explicit operations."
     )
-    output = get_helper()(
-        [{"role": "system", "content": system_prompt},
-         {"role": "user", "content": f"Agent: {agent_id}\nReasoning:\n{thinking_text}"}],
-        max_new_tokens=1024, do_sample=False,
+
+    ollama.generate(model=AGENT_MODEL, keep_alive=0)
+
+    response = ollama.chat(
+        model=HELPER_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": f"Agent: {agent_id}\nReasoning:\n{thinking_text}",
+            },
+        ],
+        options={
+            "num_ctx": 8192,
+            "num_predict": 2048,
+            "num_batch": 128,
+            "temperature": 0,
+        },
+        keep_alive=0,
     )
-    raw = output[0]["generated_text"][-1]["content"]
+
+    if getattr(response, "done_reason", None) == "length":
+        raise ValueError("Helper response was truncated.")
+
+    raw = response.message.content or ""
+    if not raw.strip():
+        raise ValueError("Helper returned an empty response.")
+
     return normalize_checkpoint_json(raw, agent_id, thinking_text)
 
 def _validate_filename(filename):
@@ -504,7 +544,6 @@ def run_ollama_test(text, file_content=None, file_name=None):
         {
             "role": "system",
             "content": (
-                "You are HoneyGate, a helpful conversational assistant. "
                 "For greetings and general questions, answer the user directly "
                 "and naturally. "
                 "Only use file tools when the user's request requires a file "
@@ -560,16 +599,37 @@ def run_ollama_test(text, file_content=None, file_name=None):
             response = ollama.chat(
                 model=AGENT_MODEL,
                 think=True,
+<<<<<<< HEAD
                 tools=tools,
                 keep_alive="10m",
                 options={
                     "num_ctx": 8192 if has_attachment else 4096,
                 },
+=======
+                keep_alive="5m",
+                tools=tools,
+>>>>>>> ai-execution
                 messages=messages,
+                options={
+                    "num_ctx": 8192,
+                    "num_predict": 4096,
+                    "num_batch": 128,
+                    "temperature": 0.6,
+                    "top_p": 0.95,
+                    "top_k": 20,
+                    "min_p": 0.0,
+                    "presence_penalty": 0.0,
+                    "repeat_penalty": 1.0,
+                },
             )
 
+            if getattr(response, "done_reason", None) == "length":
+                raise RuntimeError("Agent response was truncated; stopping before execution.")
+
             message = response.message
-            messages.append(message.model_dump(exclude_none=True))
+            history_message = message.model_dump(exclude_none=True)
+            history_message.pop("thinking", None)
+            messages.append(history_message)
 
             thinking = getattr(message, "thinking", None) or ""
             if thinking:
