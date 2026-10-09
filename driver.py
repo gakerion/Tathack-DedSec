@@ -105,7 +105,8 @@ def get_history(repo: git.Repo, limit: int = 20) -> list[dict[str, str]]:
         for commit in repo.iter_commits(max_count=limit)
     ]
 
-def get_changed_lines_from_last_commit_and_unstaged(
+
+def change_commit_unstaged(
     repo: git.Repo,
 ) -> int:
     
@@ -147,6 +148,7 @@ def get_changed_lines_from_last_commit_and_unstaged(
         count_numstat_lines(last_commit_changes)
         + count_numstat_lines(unstaged_changes)
     )
+
 
 def push_git(
     repo_path: str,

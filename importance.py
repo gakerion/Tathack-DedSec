@@ -1,7 +1,8 @@
 import math
 import json
 import driver
-
+import git
+repo = git.Repo(".//workspace")  # Assuming the current directory is a Git repository
 
 OPERATION_SEVERITY = {
     "read": 0.0,
@@ -71,10 +72,7 @@ def calculate_importance(
         "M": int(modifies),
         "C": OPERATION_SEVERITY[operation],
         "R": recovery["value"],
-        "S": min(
-            1.0,
-            math.log1p(affected_count) / math.log1p(scope_threshold),
-        ),
+        "S": driver.change_commit_unstaged(repo),
         "E": EXTERNAL_IMPACT[impact],
     }
 
