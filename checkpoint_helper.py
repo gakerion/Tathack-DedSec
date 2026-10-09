@@ -293,41 +293,41 @@ def save_checkpoint_marks(marks, output_file=OUTPUT_FILE):
     return path
 
 
-def run_ollama_test():
-    print("Requesting reasoning from Ollama...", flush=True)
+def run_ollama_test(text):
+    print("Requesting response from Ollama...", flush=True)
 
-    # Run the main model first and unload it after this request,
-    # before loading the Hugging Face helper.
     response = ollama.chat(
         model=AGENT_MODEL,
         think=True,
         keep_alive=0,
         options={"num_ctx": 4096},
-        messages=[{
-            "role": "user",
-            "content": (
-                "Plan this task without executing it: "
-                "inspect project settings, create a backup of app_config.json, "
-                "update its API endpoint, then move the old configuration "
-                "into the archive folder."
-            ),
-        }],
+        messages=[{"role": "user", "content": text}],
     )
 
-    thinking = getattr(response.message, "thinking", None)
+    thinking = getattr(response.message, "thinking", None) or ""
+    normal_output = getattr(response.message, "content", None) or ""
 
-    if not thinking or not thinking.strip():
-        raise ValueError("The main model returned no reasoning text.")
+    # print("\nAGENT REASONING:\n", thinking, flush=True)
+    # print("\nNORMAL OUTPUT:\n", normal_output, flush=True)
 
-    print("\nAGENT REASONING:\n", thinking, flush=True)
+    marks = None
 
-    marks = suggest_checkpoint_marks(
-        agent_id="configuration_agent",
-        thinking_text=thinking
-    )
+    if thinking.strip():
+        marks = suggest_checkpoint_marks(
+            agent_id="configuration_agent",
+            thinking_text=thinking,
+        )
+        save_checkpoint_marks(marks)
+    else:
+        print("No reasoning returned; skipping checkpoint extraction.")
 
-    save_checkpoint_marks(marks)
+    return {
+        "thinking": thinking,
+        "output": normal_output,
+        "checkpoint_marks": marks,
+    }
 
+    
 
 if __name__ == "__main__":
     try:
