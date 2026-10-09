@@ -52,6 +52,10 @@ def stage_files(repo: git.Repo, file_paths: list[str]) -> None:
 
     repo.index.add(file_paths)
 
+def stage_all(repo: git.Repo) -> None:
+    repo.index.add(all=True)
+    return None
+
 
 def stage_all(repo: git.Repo) -> None:
     repo.git.add("--all")
