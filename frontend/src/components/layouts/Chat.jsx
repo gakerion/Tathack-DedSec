@@ -105,7 +105,12 @@ function Chat() {
             <div className="chat-message-body">
               <p className="chat-message-text">{message.content}</p>
               {message.agentError && <p role="alert">Agent error: {message.agentError}</p>}
-              {message.helperError && <p role="status">Description helper: {message.helperError}</p>}
+              {message.helperError && (
+                <details className="helper-suggestions">
+                  <summary>Description details</summary>
+                  <p>{message.helperError}</p>
+                </details>
+              )}
               {message.titleError && <p role="status">{message.titleError}</p>}
               {message.suggestions?.length > 0 && (
                 <details className="helper-suggestions">

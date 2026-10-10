@@ -1,5 +1,6 @@
 """Exercise Azure failure/recovery paths with an in-memory blob store, never real credentials."""
 import json
+import base64
 import os
 import tempfile
 import unittest
@@ -59,6 +60,49 @@ class AzureBackupTests(unittest.TestCase):
 
     def create(self):
         return hg.execute_tool("create_text_file", {"filename": "note.txt", "content": "hello"})
+
+    def test_initial_backup_contains_existing_workspace_before_first_change(self):
+        (hg.WORKSPACE / ".git").mkdir(parents=True)
+        (hg.WORKSPACE / ".git" / "index").write_bytes(b"\x00\xff")
+        (hg.WORKSPACE / "existing.txt").write_text("original")
+        original = backup.upload_json
+
+        def upload(name, data, overwrite=False):
+            if name == "workspace/initial.json":
+                self.assertFalse((hg.WORKSPACE / "note.txt").exists())
+            return original(name, data, overwrite)
+
+        with patch.object(backup, "upload_json", side_effect=upload):
+            first = self.create()
+        self.assertEqual(first["status"], "executed")
+        baseline = backup.download_json("workspace/initial.json")
+        self.assertIn(".git", baseline["directories"])
+        self.assertEqual(base64.b64decode(baseline["files"][".git/index"]["content_base64"]), b"\x00\xff")
+        self.assertEqual(base64.b64decode(baseline["files"]["existing.txt"]["content_base64"]), b"original")
+        self.assertNotIn("note.txt", baseline["files"])
+        second = hg.execute_tool("create_text_file", {"filename": "later.txt", "content": "later"})
+        self.assertEqual(second["status"], "executed")
+        self.assertEqual(backup.download_json("workspace/initial.json"), baseline)
+
+    def test_initial_backup_failure_blocks_first_change(self):
+        self.store["history/latest.json"] = json.dumps({"schema_version": 1, "tasks": []}).encode()
+        with patch.object(backup, "upload_json", side_effect=backup.BackupError("Offline")):
+            with self.assertRaises(backup.BackupError):
+                self.create()
+        self.assertFalse((hg.WORKSPACE / "note.txt").exists())
+        self.assertEqual(history.all_actions(), [])
+
+    def test_initial_backup_rejects_linked_workspace_content(self):
+        hg.WORKSPACE.mkdir()
+        target = self.root / "outside.txt"
+        target.write_text("outside")
+        try:
+            (hg.WORKSPACE / "linked.txt").symlink_to(target)
+        except OSError:
+            self.skipTest("Windows account cannot create symlinks")
+        with self.assertRaises(backup.BackupError):
+            self.create()
+        self.assertFalse((hg.WORKSPACE / "note.txt").exists())
 
     def test_checkpoint_verified_before_creation(self):
         original = backup.upload_json

@@ -115,7 +115,8 @@ then undo the paragraph, heading, and creation. Also try a manual edit before un
 
 ## Simple Azure backup setup
 
-The backend uploads checkpoint JSON and action history directly to Azure Blob Storage
+The backend uploads an initial copy of the whole `workspace/` folder, checkpoint JSON,
+and action history directly to Azure Blob Storage
 using [azure_backup.py](./azure_backup.py). There is no separate service or Docker.
 The agent has no credential, shell, or Azure tools. This assumes it cannot read the
 backend configuration or process environment. This setup does not provide immutable/WORM protection.
@@ -158,6 +159,17 @@ Existing values take priority over the file. No `.env` loader is used.
 The local config contains a plaintext secret, not an encrypted or hashed one. It is
 outside the agent's controlled workspace, under the agreed restricted-agent assumption.
 
+Before the first controlled file change in Azure mode, the backend uploads
+`<prefix>/workspace/initial.json` and reads it back to verify it. This one-time baseline
+contains every regular file and subfolder inside `workspace/`, including its nested
+`.git/` folder and binary files. Empty subfolders are recorded too. Links and junctions
+are rejected, and the prototype limits the initial contents to 100 MiB. If the upload
+fails, the agent does not change a file. The baseline is never overwritten, so existing
+actions and later workspace changes do not alter it. When enabling this feature on an
+existing project, the baseline reflects the workspace at the time of its first upload;
+it cannot reconstruct an earlier untouched state. There is currently no whole-folder
+restore button; individual supported changes still use action checkpoints.
+
 Each new checkpoint is uploaded under `<prefix>/checkpoints/<id>.json` and downloaded
 again for byte-for-byte verification before the file change. Existing checkpoint blobs
 are never overwritten; identical re-uploads are accepted. Action intent, results, and
@@ -177,7 +189,7 @@ are downloaded on demand during undo and validated before use. Existing local hi
 is not replaced or merged with remote history. Do not delete local history after a failed
 upload; first retry synchronization so the remote copy has the newest outcomes.
 
-Backups save previous file states, not a complete latest copy of the workspace. Undo
+The initial baseline and later checkpoints do not provide a complete latest copy of the workspace. Undo
 still requires the current target file to match its expected post-action content; a
 missing or manually changed workspace file is blocked. This is checkpoint recovery,
 not a full disaster-recovery filesystem restore.

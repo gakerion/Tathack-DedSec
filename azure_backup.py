@@ -1,7 +1,10 @@
 """Small Azure Blob backup helper. Credentials never go into model messages."""
+import base64
+import hashlib
 import json
 import os
 import re
+import stat
 from pathlib import Path
 
 CONFIG_FILE = Path(__file__).with_name("azure_config.json")
@@ -103,6 +106,64 @@ def download_json(name, missing_ok=False):
         raise
     except Exception:
         raise BackupError("Could not download valid JSON from Azure backup.") from None
+
+
+def ensure_initial_workspace_backup(workspace):
+    """Upload the whole workspace once, before the first controlled file change."""
+    if not enabled():
+        return False
+    name = "workspace/initial.json"
+    saved = download_json(name, missing_ok=True)
+    if saved is not None:
+        if (not isinstance(saved, dict) or saved.get("schema_version") != 1
+                or saved.get("kind") != "initial_workspace"
+                or not isinstance(saved.get("files"), dict)
+                or not isinstance(saved.get("directories"), list)):
+            raise BackupError("The initial workspace backup is invalid.")
+        return True
+
+    workspace = Path(workspace)
+    if workspace.is_symlink() or workspace.is_junction():
+        raise BackupError("Workspace must not be a link or junction.")
+    try:
+        if workspace.exists() and not workspace.is_dir():
+            raise BackupError("Workspace must be a directory.")
+        files, directories = {}, []
+        total_bytes = 0
+        for root, folder_names, file_names in os.walk(workspace, followlinks=False):
+            root = Path(root)
+            for folder_name in sorted(folder_names):
+                folder = root / folder_name
+                if folder.is_symlink() or folder.is_junction():
+                    raise BackupError("Workspace backup cannot include links or junctions.")
+                directories.append(folder.relative_to(workspace).as_posix())
+            for file_name in sorted(file_names):
+                path = root / file_name
+                if path.is_symlink() or path.is_junction():
+                    raise BackupError("Workspace backup cannot include links or junctions.")
+                before = path.stat()
+                if not stat.S_ISREG(before.st_mode):
+                    raise BackupError("Workspace backup supports regular files only.")
+                total_bytes += before.st_size
+                if total_bytes > 100 * 1024 * 1024:
+                    raise BackupError("Workspace exceeds the 100 MiB initial backup limit.")
+                content = path.read_bytes()
+                after = path.stat()
+                if (before.st_ino, before.st_size, before.st_mtime_ns) != (
+                        after.st_ino, after.st_size, after.st_mtime_ns) or len(content) != before.st_size:
+                    raise BackupError("Workspace changed during its initial backup; retry.")
+                files[path.relative_to(workspace).as_posix()] = {
+                    "content_base64": base64.b64encode(content).decode("ascii"),
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }
+    except BackupError:
+        raise
+    except OSError:
+        raise BackupError("Could not read the whole workspace for its initial backup.") from None
+
+    upload_json(name, {"schema_version": 1, "kind": "initial_workspace",
+                       "directories": sorted(directories), "files": files})
+    return True
 
 
 def backup_existing_checkpoints(directory):

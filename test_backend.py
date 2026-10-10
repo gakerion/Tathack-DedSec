@@ -430,6 +430,7 @@ class BackendTests(unittest.TestCase):
             json.dumps([good, {**good, "title": "bad"}]), "agent", "create note.txt")
         self.assertEqual(len(marks), 1)
         self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0], "Suggestion 2: title must be one line of 16-20 characters.")
         self.assertTrue(marks[0]["evidence_verified"])
 
     def test_read_search_and_stale_hash(self):

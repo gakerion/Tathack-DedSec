@@ -153,7 +153,8 @@ def normalize_checkpoint_json_partial(content, agent_id, thinking_text):
         try:
             valid.extend(normalize_checkpoint_json(json.dumps([item]), agent_id, thinking_text))
         except ValueError as error:
-            errors.append(f"Suggestion {index + 1}: {error}")
+            detail = str(error).removeprefix("Suggestion 0: ")
+            errors.append(f"Suggestion {index + 1}: {detail}")
     return valid, errors
 
 
@@ -510,6 +511,7 @@ def execute_tool(name, arguments, task_id=None):
     with _tool_lock:
         if _OPERATIONS.get(name) in history.MODIFYING_OPERATIONS:
             history.require_safe_history()
+            backup.ensure_initial_workspace_backup(WORKSPACE)
         if task_id is None:
             task_id = history.start_task("Direct tool execution")
         stages = []
