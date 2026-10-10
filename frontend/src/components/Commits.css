@@ -119,3 +119,10 @@
   border-left: 3px solid #ff2222;
   background: #f6f6f6;
 }
+.action-card {
+  padding: 10px;
+  background: #f6f6f6;
+  overflow-wrap: anywhere;
+}
+.action-heading { display: flex; align-items: center; gap: 8px; }
+.action-card p { margin: 6px 0; font-size: 13px; }

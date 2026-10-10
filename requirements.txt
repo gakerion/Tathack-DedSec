@@ -1,11 +1,8 @@
 fastapi
 uvicorn
 python-multipart
-transformers
-torch
-accelerate
-GitPython
-transformers
-azure-storage-blob
 ollama
+
+# Only needed by the separate legacy Git/Azure utilities.
 GitPython
+azure-storage-blob

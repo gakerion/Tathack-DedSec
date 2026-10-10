@@ -1,6 +1,4 @@
 import math
-import json
-import driver
 
 
 OPERATION_SEVERITY = {
@@ -48,15 +46,21 @@ def calculate_importance(
     scope_threshold=10,
 ):
     if operation not in OPERATION_SEVERITY or impact not in EXTERNAL_IMPACT:
-        return 0
+        raise ValueError("Unknown operation or impact.")
 
     if (
-        not isinstance(affected_count, (int, float))
+        type(affected_count) not in (int, float)
+        or not math.isfinite(affected_count)
         or affected_count < 0
-        or not isinstance(scope_threshold, (int, float))
+        or type(scope_threshold) not in (int, float)
+        or not math.isfinite(scope_threshold)
         or scope_threshold < 1
     ):
         raise ValueError("Invalid resource count or scope threshold.")
+
+    if any(type(value) is not bool for value in (backup_verified,
+            automatic_restore_supported, manual_restore_supported, reversible)):
+        raise ValueError("Recovery facts must be boolean values.")
 
     recovery = calculate_recovery(
         backup_verified,

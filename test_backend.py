@@ -1,4 +1,7 @@
 import json
+import sqlite3
+import subprocess
+import sys
 import math
 import os
 import tempfile
@@ -11,6 +14,7 @@ import checkpoint_helper as hg
 from importance import calculate_importance
 from fastapi.testclient import TestClient
 import server
+import action_history as history
 
 
 def response(thinking="", content="", calls=None):
@@ -38,7 +42,9 @@ class BackendTests(unittest.TestCase):
             change = patch.object(hg, name, value)
             change.start()
             self.addCleanup(change.stop)
-        server.checkpoints.clear()
+        database_patch = patch.object(history, "DATABASE", self.root / "history.sqlite3")
+        database_patch.start()
+        self.addCleanup(database_patch.stop)
 
     def create(self, filename="note.txt"):
         return hg.execute_tool("create_text_file", {"filename": filename, "content": "hello"})
@@ -58,8 +64,8 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(result["status"], "executed")
         self.assertEqual((self.workspace / "note.txt").read_text(), "hello")
         self.assertEqual(result["affected_count"], 1)
-        self.assertFalse(result["restore_supported"])
-        self.assertEqual(result["constants"]["R"], 1.0)
+        self.assertTrue(result["restore_supported"])
+        self.assertEqual(result["constants"]["R"], 0.0)
 
     def test_failed_checkpoint_blocks_creation(self):
         for error in (OSError("disk full"), ValueError("verification failed")):
@@ -136,7 +142,7 @@ class BackendTests(unittest.TestCase):
 
     def test_no_tool_calls_means_no_actions_even_with_reasoning(self):
         with patch("ollama.chat", return_value=response("I will create note.txt", "A plan")), \
-             patch.object(hg, "suggest_checkpoint_marks", return_value=[]):
+             patch.object(hg, "suggest_checkpoint_marks", return_value=([], [])):
             packet = hg.run_ollama_test("Plan a file")
         self.assertEqual(packet["actions"], [])
         self.assertFalse(self.workspace.exists())
@@ -154,7 +160,7 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(packet["helper_error"], "bad helper JSON")
             self.assertEqual(packet["checkpoint_marks"], [])
             self.assertEqual(packet["output"], "Created")
-            self.assertEqual({p.name for p in self.root.iterdir()}, {"workspace", "checkpoints"})
+            self.assertEqual({p.name for p in self.root.iterdir()}, {"workspace", "checkpoints", "history.sqlite3"})
             json.dumps(packet, allow_nan=False)
         finally:
             os.chdir(old_cwd)
@@ -168,11 +174,11 @@ class BackendTests(unittest.TestCase):
     def test_turn_limit_returns_prior_actions(self):
         with patch("ollama.chat", return_value=response(calls=[create_call()])):
             packet = hg.run_ollama_test("Create note.txt")
-        self.assertEqual(len(packet["actions"]), 6)
+        self.assertEqual(len(packet["actions"]), hg.MAX_AGENT_TURNS)
         self.assertEqual(packet["actions"][0]["status"], "executed")
         self.assertEqual(packet["agent_error"], "Agent turn limit reached.")
 
-    def test_http_payload_history_and_unsupported_restore(self):
+    def test_http_payload_persistent_history_and_restore(self):
         client = TestClient(server.app)
         self.assertEqual(client.get("/checkpoints").json()["checkpoints"], [])
         with patch("ollama.chat", side_effect=[
@@ -186,17 +192,27 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(data["actions"][0]["status"], "executed")
         self.assertIn("helper_error", data)
         history = client.get("/checkpoints").json()
-        self.assertFalse(history["history_persistent"])
-        self.assertEqual(history["checkpoints"][0]["commits"][0]["checkpoint_id"],
+        self.assertTrue(history["history_persistent"])
+        self.assertEqual(history["checkpoints"][0]["actions"][0]["checkpoint_id"],
                          data["actions"][0]["checkpoint_id"])
-        self.assertEqual(client.post("/restore?commit_hash=anything").status_code, 501)
+        restored = client.post("/restore", json={"action_id": data["actions"][0]["action_id"]})
+        self.assertEqual(restored.status_code, 200)
+        self.assertFalse((self.workspace / "note.txt").exists())
+        self.assertEqual(client.post("/restore?commit_hash=anything").status_code, 422)
         self.assertEqual(client.post("/chat", data={"prompt": " "}).status_code, 422)
+        with patch("ollama.chat", return_value=response(content="Hello")):
+            attached = client.post("/chat", data={"prompt": "Hi"},
+                                   files={"file": ("x.txt", b"hello")})
+        self.assertEqual(attached.status_code, 200)
+        self.assertFalse((self.workspace / "x.txt").exists())
         self.assertEqual(client.post("/chat", data={"prompt": "Hi"},
-                                     files={"file": ("x.txt", b"hello")}).status_code, 422)
+                         files={"file": ("x.txt", b"x" * 12001)}).status_code, 413)
+        self.assertEqual(client.post("/chat", data={"prompt": "Hi"},
+                         files={"file": ("x.txt", b"\xff")} ).status_code, 422)
 
     def test_importance_formula_and_validation(self):
         score = calculate_importance("create", 1, impact="local", backup_verified=True)
-        expected = round(0.35 * 0.25 + 0.30 + 0.20 * math.log1p(1) / math.log1p(10), 3)
+        expected = round((0.457 * 0.25 + 0.301 + 0.158 * math.log1p(1) / math.log1p(10)) / 0.916, 3)
         self.assertEqual(score["importance"], expected)
         self.assertEqual(calculate_importance("read", 100)["importance"], 0)
         self.assertEqual(calculate_importance("delete", 0)["importance"], 0)
@@ -205,10 +221,153 @@ class BackendTests(unittest.TestCase):
                          automatic_restore_supported=True)["constants"]["R"], 0)
         for kwargs in ({"operation": "unknown"}, {"impact": "bad"}, {"affected_count": True},
                        {"scope_threshold": 0}, {"backup_verified": "true"},
-                       {"weights": {"C": float("nan"), "R": 0, "S": 0, "E": 0}}):
+                       {"affected_count": float("nan")}):
             values = {"operation": "create", "affected_count": 1, **kwargs}
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 calculate_importance(**values)
+
+
+    def edit(self, old, new):
+        read = hg.execute_tool("read_text_file", {"filename": "note.txt"})
+        return hg.execute_tool("edit_text_file", {
+            "filename": "note.txt", "old_text": old, "new_text": new,
+            "expected_sha256": read["sha256"],
+        })
+
+    def test_create_edit_edit_persist_and_undo(self):
+        created = self.create()
+        first = self.edit("hello", "Heading")
+        second = self.edit("Heading", "Heading\nParagraph")
+        # A fresh Python process reads the same durable history.
+        code = ("from pathlib import Path; import action_history as h; "
+                "import sys; h.DATABASE = Path(sys.argv[1]); "
+                "print(len(h.all_actions()))")
+        output = subprocess.check_output(
+            [sys.executable, "-B", "-c", code, str(history.DATABASE)], text=True)
+        self.assertEqual(output.strip(), "5")
+        with self.assertRaisesRegex(ValueError, "latest"):
+            hg.undo_latest_action(created["action_id"])
+        hg.undo_latest_action(second["action_id"])
+        self.assertEqual((self.workspace / "note.txt").read_text(), "Heading")
+        hg.undo_latest_action(first["action_id"])
+        self.assertEqual((self.workspace / "note.txt").read_text(), "hello")
+        hg.undo_latest_action(created["action_id"])
+        self.assertFalse((self.workspace / "note.txt").exists())
+        self.assertIsNone(history.latest_modification())
+
+    def test_manual_edit_blocks_undo(self):
+        action = self.create()
+        (self.workspace / "note.txt").write_text("Manual change")
+        with self.assertRaisesRegex(ValueError, "changed"):
+            hg.undo_latest_action(action["action_id"])
+        self.assertEqual((self.workspace / "note.txt").read_text(), "Manual change")
+        self.assertEqual(history.latest_modification()["status"], "executed")
+
+    def test_partial_failure_blocks_later_writes_and_undo(self):
+        with patch.object(hg.os, "fsync", side_effect=[None, OSError("disk full")]):
+            self.create()
+        with self.assertRaisesRegex(RuntimeError, "partially changed"):
+            self.create("another.txt")
+        self.assertFalse((self.workspace / "another.txt").exists())
+        self.assertTrue(history.history_payload()["history_error"])
+
+    def test_unexpected_failure_retains_checkpoint_link(self):
+        with patch.object(hg, "_assert_unchanged", side_effect=RuntimeError("interrupted")):
+            with self.assertRaises(RuntimeError):
+                self.create()
+        action = history.all_actions()[0]
+        self.assertEqual(action["status"], "running")
+        self.assertIn("checkpoint_id", action)
+        self.assertFalse((self.workspace / "note.txt").exists())
+        with self.assertRaises(RuntimeError):
+            self.create("later.txt")
+
+    def test_failed_history_write_prevents_execution(self):
+        with patch.object(history, "begin_action", side_effect=sqlite3.OperationalError("full")):
+            with self.assertRaises(sqlite3.OperationalError):
+                self.create()
+        self.assertFalse(self.workspace.exists())
+
+    def test_failed_outcome_save_leaves_running_record(self):
+        original = history.save_action
+        def save(action_id, result):
+            if result["status"] == "executed":
+                raise sqlite3.OperationalError("disk full")
+            original(action_id, result)
+        with patch.object(history, "save_action", side_effect=save):
+            with self.assertRaises(sqlite3.OperationalError):
+                self.create()
+        self.assertTrue((self.workspace / "note.txt").exists())
+        self.assertEqual(history.all_actions()[0]["status"], "running")
+        with self.assertRaises(RuntimeError):
+            self.create("later.txt")
+
+    def test_undo_failure_blocks_future_modifications(self):
+        self.create()
+        action = self.edit("hello", "updated")
+        with patch.object(hg, "_replace_text", side_effect=OSError("disk full")):
+            with self.assertRaises(RuntimeError):
+                hg.undo_latest_action(action["action_id"])
+        self.assertEqual(history.all_actions()[-1]["status"], "undo_failed")
+        with self.assertRaises(RuntimeError):
+            self.create("later.txt")
+
+    def test_corrupt_checkpoint_does_not_modify_file(self):
+        self.create()
+        action = self.edit("hello", "updated")
+        path = self.storage / (action["checkpoint_id"] + ".json")
+        checkpoint = json.loads(path.read_text())
+        checkpoint["files"][0]["sha256"] = "0" * 64
+        path.write_text(json.dumps(checkpoint))
+        with self.assertRaisesRegex(ValueError, "verification"):
+            hg.undo_latest_action(action["action_id"])
+        self.assertEqual((self.workspace / "note.txt").read_text(), "updated")
+
+    def test_disabled_tools_and_bulk_edits(self):
+        for tool in ("overwrite_text_file", "delete_file", "move_file"):
+            self.assertEqual(hg.execute_tool(tool, {})["status"], "blocked")
+        self.create()
+        result = hg.execute_tool("edit_text_file", {
+            "filename": "note.txt", "old_text": "hello", "new_text": "bye",
+            "replace_all": True,
+        })
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual((self.workspace / "note.txt").read_text(), "hello")
+
+    def test_batch_calls_are_blocked_then_single_calls_execute(self):
+        with patch("ollama.chat", side_effect=[
+            response(calls=[create_call("a.txt"), create_call("b.txt")]),
+            response(calls=[create_call("a.txt")]),
+            response(calls=[create_call("b.txt")]),
+            response(content="Created both"),
+        ]):
+            packet = hg.run_ollama_test("Create two files")
+        self.assertEqual([a["status"] for a in packet["actions"]],
+                         ["blocked", "blocked", "executed", "executed"])
+        self.assertEqual(len(history.groups()), 1)
+        self.assertEqual(len(list(self.storage.glob("*.json"))), 2)
+
+    def test_partial_helper_validation_keeps_good_suggestions(self):
+        good = {"operation": "create", "title": "Create notes file", "target": "note.txt",
+                "supporting_text": "create note.txt", "reason": "Save a note"}
+        marks, errors = hg.normalize_checkpoint_json_partial(
+            json.dumps([good, {**good, "title": "bad"}]), "agent", "create note.txt")
+        self.assertEqual(len(marks), 1)
+        self.assertEqual(len(errors), 1)
+        self.assertTrue(marks[0]["evidence_verified"])
+
+    def test_read_search_and_stale_hash(self):
+        self.create()
+        read = hg.execute_tool("read_text_file", {"filename": "note.txt"})
+        matches = hg.execute_tool("search_text_files", {"query": "hello"})
+        self.assertEqual(matches["matches"][0]["filename"], "note.txt")
+        (self.workspace / "note.txt").write_text("manual")
+        result = hg.execute_tool("edit_text_file", {
+            "filename": "note.txt", "old_text": "manual", "new_text": "changed",
+            "expected_sha256": read["sha256"],
+        })
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual((self.workspace / "note.txt").read_text(), "manual")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useOutletContext } from "react-router-dom";
 import "./Chat.css";
 import logoIcon from "../../assets/logo-icon.png";
 import userIcon from "../../assets/user.png";
@@ -13,15 +12,11 @@ function Chat() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const { setHasChat } = useOutletContext();
-
   async function handleSubmit(event) {
     event.preventDefault();
 
     const text = prompt.trim();
     if (!text || loading) return;
-
-    setHasChat(true);
 
     setMessages((previous) => [
       ...previous,
@@ -63,7 +58,12 @@ function Chat() {
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: data.result,
+          content: data.result || (data.agent_error
+            ? "The task stopped before a final answer was produced."
+            : "No final answer was returned. Check action history."),
+          agentError: data.agent_error,
+          helperError: data.helper_error,
+          suggestions: data.checkpoint_marks ?? [],
         },
       ]);
 
@@ -71,12 +71,9 @@ function Chat() {
     } catch (error) {
       setError(error.message);
     } finally {
-  setLoading(false);
-
-  window.dispatchEvent(
-    new Event("honeygate:checkpoints-updated")
-  );
-}
+      setLoading(false);
+      window.dispatchEvent(new Event("honeygate:checkpoints-updated"));
+    }
   }
 
   return (
@@ -107,6 +104,24 @@ function Chat() {
 
             <div className="chat-message-body">
               <p className="chat-message-text">{message.content}</p>
+              {message.agentError && <p role="alert">Agent error: {message.agentError}</p>}
+              {message.helperError && <p role="status">Description helper: {message.helperError}</p>}
+              {message.suggestions?.length > 0 && (
+                <details className="helper-suggestions">
+                  <summary>Planned operations from reasoning</summary>
+                  <p>These are descriptions of plans. See action history for execution results.</p>
+                  <ul>
+                    {message.suggestions.map((suggestion, index) => (
+                      <li key={index}>
+                        <strong>{suggestion.title}</strong>
+                        {suggestion.target ? `: ${suggestion.target}` : ""}
+                        <p>{suggestion.reason}</p>
+                        {!suggestion.evidence_verified && <small>Supporting quote could not be verified.</small>}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
 
               {message.filename && (
                 <small className="chat-attachment">

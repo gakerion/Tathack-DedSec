@@ -1,1 +1,5 @@
 workspace/
+honeygate-history.sqlite3*
+__pycache__/
+checkpoints/
+.venv/

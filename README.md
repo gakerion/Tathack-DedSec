@@ -1,105 +1,103 @@
-# HoneyGate backend update
+# HoneyGate local MVP
 
-This update was based on the executable backend in
-`C:\Users\aksha\Downloads\HACKATHON\Tathack-DedSec`.
-The supplied checkpoint-restore ZIP contained an earlier planning-only helper and
-Git utilities; it did not contain server.py or the executable create-file tool.
+HoneyGate saves a verified checkpoint before each supported agent file change,
+records actual actions, and lets users undo changes in reverse order.
 
 ## Run locally
 
-Use Python 3.12 or newer (the tests were run with Python 3.14).
-From the project folder:
+Use Python 3.12 or newer, with Ollama running. From the project folder:
 
 ```powershell
-python -m pip install -r requirements.txt
-ollama pull qwen3:4b
-python -m uvicorn server:app --host 127.0.0.1 --port 8000
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements-test.txt
+ollama pull qwen3.5:9b-q4_K_M
+ollama pull qwen3:4b-instruct-2507-q4_K_M
+.venv\Scripts\python -m uvicorn server:app --host 127.0.0.1 --port 8000
 ```
 
-Ollama must be running. The Hugging Face helper loads on the first request that
-includes reasoning, and may download model weights. Run one server worker;
-model calls are serialized to avoid overlapping access to the shared helper.
-GitPython is retained for the project's existing, separate Git utilities. Those
-utilities are not exposed as agent tools and were not changed by this update.
+Run exactly one backend worker. Both current models use Ollama. Model names,
+options, and the 20-turn limit are in [checkpoint_helper.py](./checkpoint_helper.py).
+Transformers is no longer part of the active helper path.
 
-## Returned JSON
+In a second terminal, run `cd frontend`, `npm install`, and `npm run dev`.
+Open the Vite URL (normally http://localhost:5173).
 
-`run_ollama_test(prompt)` returns a Python dictionary. FastAPI serializes it once.
-`POST /chat` still accepts the `prompt` form field, and returns:
+## Supported actions
 
-```json
-{
-  "thinking": "Exposed reasoning, if the agent returned it",
-  "output": "The normal model answer",
-  "actions": [],
-  "checkpoint_marks": [],
-  "helper_error": null,
-  "agent_error": null,
-  "result": "The normal model answer"
-}
-```
+Create new UTF-8 text files, read/list/search files, and edit a unique text match.
+Only plain filenames inside `workspace/` are accepted. Files are limited to 1 MiB;
+reads return at most 12,000 characters and report truncation. Reference attachments
+are limited to 12 KB and are not automatically saved.
 
-`result` is an alias for `output` to keep the existing frontend working.
-`checkpoint_marks` contains descriptive helper suggestions, not saved checkpoints
-or confirmed actions. A suggestion contains operation, title, target,
-supporting_text, evidence_verified, reason, and agent_id. Titles must have
-16-20 characters; invalid helper output appears in helper_error without erasing
-actions. Extra helper-generated score, count and recovery fields are discarded.
+The main agent is instructed to split a task into small logical changes. The backend
+rejects batches and asks for one tool call per turn. Logical edit size still partly
+depends on the model. Overwrite, delete, move, and bulk replacement tools are disabled
+for the create/edit MVP; their previous implementation remains in the source.
 
-Only `actions` describes actual tool outcomes. Check status (`executed`,
-`blocked`, or `failed`) and state_changed. A write or flush failure after opening
-a file can leave an empty or partial file; that outcome is reported as failed
-with state_changed=true. Do not automatically retry a failed task: previous
-actions may already have executed. agent_error and helper_error can be present
-in an otherwise successful HTTP response, so inspect them in the frontend.
+Click **Undo latest change** to reverse a completed create/edit action. Repeat to
+reach an earlier point. Undo checks the current content and blocks if a file was
+changed manually or is missing. There is no redo operation.
 
-Only create_text_file is executable. It accepts a plain filename and UTF-8 text,
-rejects existing files and invalid Windows filenames, and records the prior
-absence of the target. The checkpoint is flushed and read back before exclusive
-file creation. A checkpoint record alone does not prove an action completed:
-creation may fail after the checkpoint is saved.
+## Code and data flow
 
-No report text file is written. Workspace files and checkpoint JSON records
-remain on disk. Old report files are preserved but are no longer updated.
+- [checkpoint_helper.py](./checkpoint_helper.py): model calls, validation, snapshots,
+  controlled execution, helper analysis, and undo.
+- [action_history.py](./action_history.py): SQLite intent/outcome records, task groups,
+  and eligibility for undo. No additional database dependency is required.
+- [server.py](./server.py): HTTP endpoints and a lock serializing agent tasks and undo.
+- [importance.py](./importance.py): deterministic scoring. Existing weights remain
+  C=0.457, R=0.301, S=0.158, E=0.084, renormalized over C/R/S for local impact.
+  Successful supported changes report verified programmatic restore capability.
+  Scores describe execution-time facts, not probabilities or guarantees against later edits.
 
-## Importance and restoration
+Helper descriptions are separate from actual actions. One invalid suggestion does
+not erase valid suggestions; invalid JSON or model failures appear as helper errors.
+Exposed reasoning never executes tools or creates extra recovery points.
 
-Python scores successful actions using backend facts. The helper supplies no
-inputs to scoring. Defaults remain M x (0.35C + 0.30R + 0.20S + 0.15E), with
-logarithmic scope scaling capped at the configured threshold. Adjust the
-constants in importance.py or use calculate_importance's scope_threshold and
-weights arguments. These are policy estimates, not failure probabilities.
+## API
 
-A verified pre-creation checkpoint does not imply restoration exists. Automatic
-and manual restoration support are false, recovery difficulty remains 1.0, and
-scores are provisional. POST /restore returns HTTP 501. The frontend should
-use restore_supported=false to disable restore buttons.
+- `POST /chat`: multipart `prompt` and optional `file`. Returns `thinking`, `output`,
+  `result` (alias of output), `task_id`, `actions`, `checkpoint_marks`, `helper_error`,
+  and `agent_error`. Inspect errors even when HTTP status is 200.
+- `GET /checkpoints`: task groups with `actions`, `history_persistent: true`, and
+  `history_error`. Only the latest eligible action has `restore_supported: true`.
+- `POST /restore`: JSON body `{"action_id": 123}`. Conflicts return HTTP 409.
+  Git commit hashes are no longer accepted.
 
-GET /checkpoints returns real completed actions from this server process,
-grouped by prompt, rather than sample data. The legacy commits/commit_hash field
-names are retained for frontend compatibility; commit_hash is a checkpoint ID,
-not a Git commit. History is in memory and resets at server restart. Failed and
-blocked results remain in each group's actions. This is not yet persistent
-action-history reconstruction from stored checkpoints.
+History is stored in `honeygate-history.sqlite3`, snapshots in `checkpoints/`, and
+agent files in `workspace/`. Keep the database and checkpoints together. History
+survives restarts. Existing files are preserved; old checkpoints are not imported
+because a checkpoint alone does not prove that execution completed. No text report
+is generated. The UI shows history immediately, including after a reload.
 
-File attachments return HTTP 422 because attachment processing is not implemented.
+## Limits and interrupted operations
 
-This local prototype does not protect checkpoint storage against other programs,
-arbitrary shell access, or an adversarial process replacing directories during
-execution. It is not a whole-drive sandbox. There is no implemented restore path.
+A partial or interrupted modifying action blocks more modifications and undo until
+someone inspects and repairs the file/checkpoint/history. Reads remain available.
+There is no automatic crash-repair UI. Do not delete history just to bypass this check.
+
+This is a single-process local prototype, not protection against an adversarial
+external process racing file operations or tampering with storage. Timestamps and
+all platform-specific metadata are not restored. Effects outside controlled tools
+are outside the undo scope.
+
+The active path no longer commits or uploads to Azure. Separate legacy utilities
+in [driver.py](./driver.py) and [helper.py](./helper.py) remain available. Embedded
+Azure credentials were removed from the active module; rotate credentials exposed
+earlier, including in repository history.
 
 ## Verification
 
 ```powershell
-python -m pip install -r requirements-test.txt
-python -m unittest -v test_backend
+.venv\Scripts\python -B -m unittest -v test_backend
+cd frontend
+npm run build
+npm run lint
 ```
 
-16 tests passed with mocked model responses, real temporary files, and FastAPI's
-HTTP test client. They cover checkpoint ordering/verification, failed checkpoint
-writes, exclusive creation and races, path validation, partial failures, scoring,
-helper trust boundaries, error preservation, JSON returns and HTTP routes.
-Live Ollama and Hugging Face inference were not run.
+Backend tests use mocked model replies and isolated temporary files. Coverage includes
+create/edit/edit/undo, a fresh process reading history, manual-edit conflicts, storage
+failures, malformed helper suggestions, and HTTP routes. Live inference is not covered.
 
-The archive contains replacement backend files, tests, and these notes. It does
-not contain the frontend, model weights, or existing workspace/checkpoint data.
+Manual demo: create a note, change its heading, add a paragraph, restart the backend,
+then undo the paragraph, heading, and creation. Also try a manual edit before undo.
