@@ -56,17 +56,22 @@ function Chat() {
 
       const data = await response.json();
 
-
+      const assistantContent =
+        data.output || data.result || data.agent_error ||
+        "The model did not return a response.";
 
       setMessages((previous) => [
         ...previous,
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: data.result,
+          content: assistantContent,
         },
       ]);
 
+      if (data.agent_error) {
+        setError(data.agent_error);
+      }
       setFile(null);
     } catch (error) {
       setError(error.message);

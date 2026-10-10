@@ -54,7 +54,8 @@ with state_changed=true. Do not automatically retry a failed task: previous
 actions may already have executed. agent_error and helper_error can be present
 in an otherwise successful HTTP response, so inspect them in the frontend.
 
-Only create_text_file is executable. It accepts a plain filename and UTF-8 text,
+The file tools are executable. They accept plain filenames and UTF-8 text.
+`create_text_file` accepts a plain filename and UTF-8 text,
 rejects existing files and invalid Windows filenames, and records the prior
 absence of the target. The checkpoint is flushed and read back before exclusive
 file creation. A checkpoint record alone does not prove an action completed:
@@ -86,11 +87,11 @@ destination. Existing unrelated staged and unstaged files are not included.
 To prevent monolithic commits for large generated files, each write section is
 limited to 4 KiB: `create_text_file` rejects an oversized initial file, and
 `edit_text_file` and `overwrite_text_file` reject oversized sections. The agent
-must create a small scaffold first and then use separate `edit_text_file` calls
-for each logical section. Each successful mutation call creates one additional
-Git commit. The agent has a bounded twelve-turn tool loop so it can recover from
-an oversized section and continue adding later sections without allowing an
-unbounded run.
+must create a small scaffold first, then read the file and use separate
+`edit_text_file` calls with small unique anchors for each logical section.
+Each successful mutation call creates one additional Git commit. The agent has
+a bounded twelve-turn tool loop so it can recover from an oversized section
+and continue adding later sections without allowing an unbounded run.
 
 The `checkpoint_id` and `git_commit_hash` fields are separate. The former
 identifies the verified checkpoint record, while the latter is an actual Git
@@ -108,7 +109,8 @@ server process started. The frontend commit sidebar uses this endpoint, so it
 shows repository history rather than only the current process's in-memory
 checkpoint groups.
 
-File attachments return HTTP 422 because attachment processing is not implemented.
+File attachments are accepted as UTF-8 reference data and are not saved to the
+workspace unless the agent explicitly creates a workspace copy.
 
 This local prototype does not protect checkpoint storage against other programs,
 arbitrary shell access, or an adversarial process replacing directories during
@@ -136,7 +138,8 @@ were diagnosed and fixed:
   `ValueError`.
 - `/restore` now validates the commit hash and refuses to reset a dirty
   workspace, returning HTTP 404, 409, or 422 for the corresponding errors.
-  File attachments likewise return the documented HTTP 422.
+  File attachments are decoded as UTF-8 reference data and are not saved
+  automatically.
 
 ## Verification
 

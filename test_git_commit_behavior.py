@@ -208,6 +208,16 @@ class GitCommitBehaviorTests(unittest.TestCase):
         self.assertTrue(unrelated.exists())
         self.assertIn("unrelated.txt", self.repo().git.diff("--cached", "--name-only"))
 
+    def test_app_startup_is_tolerant_of_unavailable_ai_models(self):
+        from fastapi.testclient import TestClient
+
+        import server as app_module
+
+        with patch.object(app_module, "get_helper", side_effect=RuntimeError("offline")):
+            with patch.object(app_module.ollama, "chat", side_effect=RuntimeError("offline")):
+                with TestClient(app_module.app):
+                    pass
+
     def test_low_importance_mutation_still_creates_commit(self):
         low_importance_facts = {
             "affected_count": 1,
