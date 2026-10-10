@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import action_history as history
+from azure_backup import BackupError
 from checkpoint_helper import run_ollama_test, undo_latest_action, restore_file_stage
 
 app = FastAPI()
@@ -24,7 +25,10 @@ class RestoreRequest(BaseModel):
 
 @app.get("/checkpoints")
 def get_checkpoints():
-    return history.history_payload()
+    try:
+        return history.history_payload()
+    except BackupError as error:
+        raise HTTPException(503, str(error))
 
 
 @app.post("/chat")
@@ -45,7 +49,10 @@ def prompt(prompt: str = Form(...), file: UploadFile | None = File(None)):
             raise HTTPException(422, "Only UTF-8 text attachments are supported.")
         filename = file.filename or "attachment.txt"
     with model_lock:
-        packet = run_ollama_test(prompt, file_content=content, file_name=filename)
+        try:
+            packet = run_ollama_test(prompt, file_content=content, file_name=filename)
+        except BackupError as error:
+            raise HTTPException(503, str(error))
     return {**packet, "result": packet["output"]}
 
 

@@ -13,6 +13,7 @@ from pathlib import Path
 from importance import calculate_importance
 import ollama
 import action_history as history
+import azure_backup as backup
 from file_stages import python_stages
 
 BASE = Path(__file__).resolve().parent
@@ -227,6 +228,7 @@ def _write_checkpoint(path, checkpoint):
         os.fsync(file.fileno())
     if json.loads(path.read_text(encoding="utf-8")) != checkpoint:
         raise ValueError("Checkpoint verification failed.")
+    backup.upload_json(f"checkpoints/{checkpoint['checkpoint_id']}.json", checkpoint)
 
 def _workspace_path(workspace, filename):
     _validate_filename(filename)
@@ -454,7 +456,7 @@ def _execute_tool(name, arguments, action_id=None):
             history.save_action(action_id, {**result, "status": "running"})
         for target, snapshot in zip(paths, snapshots):
             _assert_unchanged(target, snapshot)
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, backup.BackupError) as error:
         return {**result, "reason": str(error)}
 
     changed_count = 0
@@ -550,7 +552,12 @@ def _restore_data(action, current):
     checkpoint_path = checkpoint_dir / f"{checkpoint_id}.json"
     if checkpoint_path.is_symlink() or checkpoint_path.is_junction():
         raise ValueError("Checkpoint links are unsupported.")
-    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    if checkpoint_path.exists():
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    else:
+        checkpoint = backup.download_json(f"checkpoints/{checkpoint_id}.json")
+    if not isinstance(checkpoint, dict):
+        raise ValueError("Checkpoint must be a JSON object.")
     if (checkpoint.get("schema_version") != 2
         or checkpoint.get("checkpoint_id") != checkpoint_id
         or checkpoint.get("operation") != action["operation"]
@@ -599,6 +606,9 @@ def _undo_action(action):
             raise ValueError("Restored file failed verification.")
         restored = {**action, "status": "undone", "restore_supported": False}
         history.save_action(action_id, restored)
+    except backup.BackupError:
+        # The verified undo is already saved locally; only its cloud copy is pending.
+        raise
     except Exception as error:
         history.save_action(action_id, {
             **action, "status": "undo_failed", "restore_supported": False,
@@ -823,6 +833,12 @@ def run_ollama_test(text, file_content=None, file_name=None):
     except Exception as error:
         # Preserve any actions completed before the error.
         packet["agent_error"] = str(error)
+
+    # A remote outcome upload may fail after the file changed. Keep the real local outcome.
+    for group in history.groups():
+        if group["task_id"] == task_id:
+            packet["actions"] = group["actions"]
+            break
 
     packet["thinking"] = "\n\n".join(reasoning_parts)
 

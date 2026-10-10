@@ -92,7 +92,7 @@ external process racing file operations or tampering with storage. Timestamps an
 all platform-specific metadata are not restored. Effects outside controlled tools
 are outside the undo scope.
 
-The active path no longer commits or uploads to Azure. Separate legacy utilities
+The active path does not commit or upload Git repositories. Azure checkpoint backup is described below. Separate legacy utilities
 in [driver.py](./driver.py) and [helper.py](./helper.py) remain available. Embedded
 Azure credentials were removed from the active module; rotate credentials exposed
 earlier, including in repository history.
@@ -100,7 +100,7 @@ earlier, including in repository history.
 ## Verification
 
 ```powershell
-.venv\Scripts\python -B -m unittest -v test_backend
+.venv\Scripts\python -B -m unittest -v test_backend test_azure_backup
 cd frontend
 npm run build
 npm run lint
@@ -112,3 +112,67 @@ failures, malformed helper suggestions, and HTTP routes. Live inference is not c
 
 Manual demo: create a note, change its heading, add a paragraph, restart the backend,
 then undo the paragraph, heading, and creation. Also try a manual edit before undo.
+
+
+## Simple Azure backup setup
+
+The backend uploads checkpoint JSON and action history directly to Azure Blob Storage
+using [azure_backup.py](./azure_backup.py). There is no separate service or Docker.
+The agent has no credential, shell, or Azure tools. This assumes it cannot read the
+backend process environment. This setup does not provide immutable/WORM protection.
+
+1. In your Azure storage account, create a **private** Blob container named
+   `honeygate`. The code does not create containers for you.
+2. Use a current connection string with read/write permission for that container.
+   Do not reuse the credentials previously exposed in source code.
+3. Stop the backend. In the same PowerShell terminal you will use to restart it:
+
+```powershell
+$azureSecret = Read-Host "Azure Storage connection string" -AsSecureString
+$env:AZURE_STORAGE_CONNECTION_STRING = [System.Net.NetworkCredential]::new('', $azureSecret).Password
+$env:HONEYGATE_BACKUP_MODE = 'azure'
+$env:HONEYGATE_BACKUP_CONTAINER = 'honeygate'
+$env:HONEYGATE_BACKUP_PREFIX = 'honeygate-my-laptop'
+.venv\Scripts\python azure_backup.py
+.venv\Scripts\python -m uvicorn server:app --host 127.0.0.1 --port 8000
+```
+
+The first Python command uploads existing checkpoints and history; it is also the
+retry command after an outage. Run it while the backend is stopped to avoid concurrent
+history uploads. Use a unique prefix for each independent workspace/database and keep
+it unchanged for recovery. Only one running backend may write a given prefix.
+The environment settings apply to this terminal and its child processes; repeat them
+in a new terminal. No `.env` loader is used. Never paste credentials into chat.
+
+With Azure mode selected, absent credentials or failed backup verification block
+modifications. Without an explicit mode, providing a connection string enables Azure;
+otherwise the app stays in local mode. The sidebar displays which mode is active.
+Set `HONEYGATE_BACKUP_MODE=local` only when intentionally testing without remote backups.
+
+Each new checkpoint is uploaded under `<prefix>/checkpoints/<id>.json` and downloaded
+again for byte-for-byte verification before the file change. Existing checkpoint blobs
+are never overwritten; identical re-uploads are accepted. Action intent, results, and
+undo status are saved locally and synchronized to `<prefix>/history/latest.json`.
+That history snapshot is overwritten, deliberately keeping this MVP simple. It is not
+an immutable audit trail. Full history uploads add latency and suit small demo histories.
+
+If a post-action upload fails, the file may already have changed. The actual result
+remains in local history, the error is shown, and a pending-backup marker blocks further
+modifications until synchronization succeeds. An interruption can leave the remote
+history with a running/undoing action, which requires inspection rather than automatic
+retry. Remote checkpoints alone never prove that an action completed.
+
+If the local database is missing, the next history load restores it from the remote
+history snapshot using the same container and prefix. Missing local checkpoint files
+are downloaded on demand during undo and validated before use. Existing local history
+is not replaced or merged with remote history. Do not delete local history after a failed
+upload; first retry synchronization so the remote copy has the newest outcomes.
+
+Backups save previous file states, not a complete latest copy of the workspace. Undo
+still requires the current target file to match its expected post-action content; a
+missing or manually changed workspace file is blocked. This is checkpoint recovery,
+not a full disaster-recovery filesystem restore.
+
+Azure tests use the real SDK exception types with an in-memory fake blob service.
+They make no real Azure requests. A live check still requires your credentials/container.
+SDK reference: [Azure Blob Python quickstart](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-quickstart-blobs-python).

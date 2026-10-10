@@ -45,11 +45,10 @@ function Chat() {
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error(`Request failed (${response.status})`);
-      }
-
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail ?? `Request failed (${response.status})`);
+      }
 
 
 

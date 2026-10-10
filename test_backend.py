@@ -33,6 +33,9 @@ def create_call(filename="note.txt", content="hello"):
 
 class BackendTests(unittest.TestCase):
     def setUp(self):
+        environment = patch.dict(os.environ, {"HONEYGATE_BACKUP_MODE": "local"})
+        environment.start()
+        self.addCleanup(environment.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

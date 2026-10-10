@@ -16,6 +16,7 @@ export default function Commits() {
   const [restoring, setRestoring] = useState(false);
   const [message, setMessage] = useState("");
   const [historyError, setHistoryError] = useState("");
+  const [backupMode, setBackupMode] = useState("");
   const [selectedStages, setSelectedStages] = useState({});
 
   useEffect(() => {
@@ -23,11 +24,12 @@ export default function Commits() {
     async function loadHistory() {
       try {
         const response = await fetch(`${API}/checkpoints`);
-        if (!response.ok) throw new Error("Could not load action history.");
         const data = await response.json();
+        if (!response.ok) throw new Error(data.detail ?? "Could not load action history.");
         if (active) {
           setGroups(data.checkpoints);
           setHistoryError(data.history_error ?? "");
+          setBackupMode(data.backup?.mode ?? "local");
         }
       } catch (error) {
         if (active) setHistoryError(error.message);
@@ -67,6 +69,7 @@ export default function Commits() {
   return (
     <aside className="checkpoint-sidebar">
       <h2>Action history</h2>
+      {backupMode && <p>Backup: {backupMode === "azure" ? "Azure enabled" : "local only"}</p>}
       <p>Expand a file to inspect its saved stages.</p>
       {loading && <p>Loading...</p>}
       {historyError && <p role="alert">{historyError}</p>}
