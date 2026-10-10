@@ -161,7 +161,6 @@ function Chat() {
             placeholder="Ask model"
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
-            disabled={loading}
             rows={3}
             onKeyDown={(event) => {
               if (
