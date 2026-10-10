@@ -76,10 +76,9 @@ Exposed reasoning never executes tools or creates extra recovery points.
   Git commit hashes are no longer accepted.
 
 History is stored in `honeygate-history.sqlite3`, snapshots in `checkpoints/`, and
-agent files in `workspace/`. Keep the database and checkpoints together. History
-survives restarts. Existing files are preserved; old checkpoints are not imported
+agent files in `workspace/`. Keep the database and checkpoints together. Stored history survives restarts, but the API shows only the current server session. Existing files are preserved; old checkpoints are not imported
 because a checkpoint alone does not prove that execution completed. No text report
-is generated. The UI shows history immediately, including after a reload.
+is generated. A browser reload keeps current-session history; restarting the backend starts an empty history panel.
 
 ## Limits and interrupted operations
 
@@ -100,7 +99,7 @@ earlier, including in repository history.
 ## Verification
 
 ```powershell
-.venv\Scripts\python -B -m unittest -v test_backend test_azure_backup
+.venv\Scripts\python -B -m unittest -v test_backend test_azure_backup test_task_titles
 cd frontend
 npm run build
 npm run lint
@@ -119,35 +118,45 @@ then undo the paragraph, heading, and creation. Also try a manual edit before un
 The backend uploads checkpoint JSON and action history directly to Azure Blob Storage
 using [azure_backup.py](./azure_backup.py). There is no separate service or Docker.
 The agent has no credential, shell, or Azure tools. This assumes it cannot read the
-backend process environment. This setup does not provide immutable/WORM protection.
+backend configuration or process environment. This setup does not provide immutable/WORM protection.
 
 1. In your Azure storage account, create a **private** Blob container named
    `honeygate`. The code does not create containers for you.
 2. Use a current connection string with read/write permission for that container.
    Do not reuse the credentials previously exposed in source code.
-3. Stop the backend. In the same PowerShell terminal you will use to restart it:
+3. Open [azure_config.json](./azure_config.json) in the project root. It is already
+   created locally and excluded from Git. For a new checkout, copy
+   [azure_config.example.json](./azure_config.example.json) to that filename.
+4. Paste your connection string between the empty quotes for `connection_string`.
+   The container is prefilled as `honeygate`; change it if your existing container
+   has a different name. Keep the prefix stable and unique to this workspace.
+5. Save the file and restart your backend normally. No PowerShell environment
+   variables or extra configuration libraries are needed. Do not edit these settings
+   while a task is running. Never paste your credential into chat or commit it to Git.
+
+The backend reads this file automatically using a path relative to the Python module,
+so it also works when started from a different working directory. A nonempty connection
+string enables Azure. An empty string leaves the app in local mode, visibly labeled
+in the sidebar. To explicitly require Azure even when the credential is absent, add
+`"mode": "azure"`; missing credentials then block modifying actions. Invalid configuration
+also produces an error rather than silently falling back to local backups.
+
+For a one-time upload of existing checkpoints, or retry after an outage, stop the
+backend and run this command (the VS Code Run Python File action on that module works too):
 
 ```powershell
-$azureSecret = Read-Host "Azure Storage connection string" -AsSecureString
-$env:AZURE_STORAGE_CONNECTION_STRING = [System.Net.NetworkCredential]::new('', $azureSecret).Password
-$env:HONEYGATE_BACKUP_MODE = 'azure'
-$env:HONEYGATE_BACKUP_CONTAINER = 'honeygate'
-$env:HONEYGATE_BACKUP_PREFIX = 'honeygate-my-laptop'
 .venv\Scripts\python azure_backup.py
-.venv\Scripts\python -m uvicorn server:app --host 127.0.0.1 --port 8000
 ```
 
-The first Python command uploads existing checkpoints and history; it is also the
-retry command after an outage. Run it while the backend is stopped to avoid concurrent
-history uploads. Use a unique prefix for each independent workspace/database and keep
-it unchanged for recovery. Only one running backend may write a given prefix.
-The environment settings apply to this terminal and its child processes; repeat them
-in a new terminal. No `.env` loader is used. Never paste credentials into chat.
+Then start the backend normally. New checkpoints are uploaded automatically as tasks
+run; this separate command is only needed for older checkpoints or retrying failed
+backups. Use one backend and one stable prefix per workspace/database.
 
-With Azure mode selected, absent credentials or failed backup verification block
-modifications. Without an explicit mode, providing a connection string enables Azure;
-otherwise the app stays in local mode. The sidebar displays which mode is active.
-Set `HONEYGATE_BACKUP_MODE=local` only when intentionally testing without remote backups.
+Environment variables remain optional overrides: `AZURE_STORAGE_CONNECTION_STRING`,
+`HONEYGATE_BACKUP_CONTAINER`, `HONEYGATE_BACKUP_PREFIX`, and `HONEYGATE_BACKUP_MODE`.
+Existing values take priority over the file. No `.env` loader is used.
+The local config contains a plaintext secret, not an encrypted or hashed one. It is
+outside the agent's controlled workspace, under the agreed restricted-agent assumption.
 
 Each new checkpoint is uploaded under `<prefix>/checkpoints/<id>.json` and downloaded
 again for byte-for-byte verification before the file change. Existing checkpoint blobs
@@ -176,3 +185,32 @@ not a full disaster-recovery filesystem restore.
 Azure tests use the real SDK exception types with an in-memory fake blob service.
 They make no real Azure requests. A live check still requires your credentials/container.
 SDK reference: [Azure Blob Python quickstart](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-quickstart-blobs-python).
+
+
+## Short task headings
+
+Task headings use a 4-7 word summary generated from the user's request, with no
+sample titles in the summarization prompt. The full prompt remains available under
+**View original request**. Titles are saved with history and included in Azure backups.
+Existing databases migrate automatically; older tasks/backups display a shortened prompt.
+
+Summarization runs after execution and adds one helper-model request (20-second HTTP
+client timeout). Invalid or unavailable output falls back to a shortened original prompt.
+Title generation/save errors do not change action results or undo behavior. A failed
+upload of a cosmetic title alone does not block future file operations; a subsequent
+history sync includes it. Pending backups of actual actions keep their existing blocking
+behavior. Live title quality depends on the configured helper model.
+
+
+## Fresh history on server restart
+
+Every backend startup starts a new visible history session. The `/checkpoints` endpoint
+shows only tasks created after that startup, and `/restore` rejects older-session action
+IDs. Refresh the frontend after restarting the backend. A browser refresh by itself does
+not reset history. Auto-reloading the backend during development also starts a fresh session.
+
+This resets the displayed history, not the stored backups: SQLite history, checkpoint
+files, Azure backups, and workspace contents remain intact. Previous interrupted actions
+or pending backups still require resolution; restarting must not bypass those checks.
+The response reports `history_scope: current_server_session`; `history_persistent` still
+refers to the retained underlying storage.

@@ -135,3 +135,6 @@
 .stage-controls select { width: 100%; min-width: 0; padding: 8px; font: inherit; font-size: 13px; }
 .stage-controls p { margin: 0; font-size: 12px; line-height: 1.5; }
 .stage-controls button:disabled { cursor: not-allowed; }
+.original-request { margin: 0 0 12px; }
+.original-request > summary { font-size: 12px; font-weight: normal; }
+.original-request p { font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }

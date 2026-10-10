@@ -32,7 +32,46 @@ def create_call(filename="note.txt", content="hello"):
 
 
 class BackendTests(unittest.TestCase):
+    def test_history_is_available_before_chat_finishes(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+
+        action_saved = Event()
+        finish = Event()
+
+        def running_agent(*args, **kwargs):
+            self.create()
+            action_saved.set()
+            if not finish.wait(10):
+                raise RuntimeError("Test did not release the agent")
+            return {"output": "Done"}
+
+        client = TestClient(server.app)
+        with patch.object(server, "run_ollama_test", side_effect=running_agent):
+            with ThreadPoolExecutor() as executor:
+                chat = executor.submit(client.post, "/chat", data={"prompt": "Create a file"})
+                try:
+                    self.assertTrue(action_saved.wait(5))
+                    data = client.get("/checkpoints").json()
+                    self.assertFalse(chat.done())
+                    self.assertTrue(data["agent_busy"])
+                    action = data["checkpoints"][0]["actions"][0]
+                    self.assertEqual(action["status"], "executed")
+                    self.assertFalse(action["restore_supported"])
+                finally:
+                    finish.set()
+                self.assertEqual(chat.result().status_code, 200)
+        data = client.get("/checkpoints").json()
+        self.assertFalse(data["agent_busy"])
+        self.assertTrue(data["checkpoints"][0]["actions"][0]["restore_supported"])
+
     def setUp(self):
+        session = patch.object(server.app.state, "history_start_id", 0)
+        session.start()
+        self.addCleanup(session.stop)
+        title_mock = patch.object(hg, "summarize_task_title", side_effect=history.short_title)
+        title_mock.start()
+        self.addCleanup(title_mock.stop)
         environment = patch.dict(os.environ, {"HONEYGATE_BACKUP_MODE": "local"})
         environment.start()
         self.addCleanup(environment.stop)
@@ -212,6 +251,40 @@ class BackendTests(unittest.TestCase):
                          files={"file": ("x.txt", b"x" * 12001)}).status_code, 413)
         self.assertEqual(client.post("/chat", data={"prompt": "Hi"},
                          files={"file": ("x.txt", b"\xff")} ).status_code, 422)
+
+    def test_server_restart_starts_empty_history_without_deleting_backups(self):
+        old = self.create("old.txt")
+        with TestClient(server.app) as client:
+            self.assertEqual(client.get("/checkpoints").json()["checkpoints"], [])
+            with patch("ollama.chat", side_effect=[
+                response(calls=[create_call("new.txt")]), response(content="Created")
+            ]):
+                reply = client.post("/chat", data={"prompt": "Create a new file"})
+            new = reply.json()["actions"][0]
+            self.assertEqual(len(client.get("/checkpoints").json()["checkpoints"]), 1)
+            self.assertEqual(client.post("/restore", json={"action_id": old["action_id"]}).status_code, 409)
+        with TestClient(server.app) as client:
+            self.assertEqual(client.get("/checkpoints").json()["checkpoints"], [])
+            for keep_stage in (False, True):
+                self.assertEqual(client.post("/restore", json={
+                    "action_id": new["action_id"], "keep_stage": keep_stage,
+                }).status_code, 409)
+        self.assertEqual(len(history.groups()), 2)
+        self.assertTrue((self.storage / f"{new['checkpoint_id']}.json").exists())
+        self.assertTrue((self.workspace / "old.txt").exists())
+        self.assertTrue((self.workspace / "new.txt").exists())
+
+    def test_new_session_actions_still_support_undo(self):
+        self.create("old.txt")
+        with TestClient(server.app) as client:
+            with patch("ollama.chat", side_effect=[
+                response(calls=[create_call("new.txt")]), response(content="Created")
+            ]):
+                reply = client.post("/chat", data={"prompt": "Create a new file"})
+            action = reply.json()["actions"][0]
+            self.assertEqual(client.post("/restore", json={"action_id": action["action_id"]}).status_code, 200)
+        self.assertTrue((self.workspace / "old.txt").exists())
+        self.assertFalse((self.workspace / "new.txt").exists())
 
     def test_importance_formula_and_validation(self):
         score = calculate_importance("create", 1, impact="local", backup_verified=True)

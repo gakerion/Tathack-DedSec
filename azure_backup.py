@@ -2,6 +2,28 @@
 import json
 import os
 import re
+from pathlib import Path
+
+CONFIG_FILE = Path(__file__).with_name("azure_config.json")
+
+
+def settings():
+    """Load local settings; environment variables can override them for deployment."""
+    try:
+        saved = json.loads(CONFIG_FILE.read_text(encoding="utf-8-sig")) if CONFIG_FILE.exists() else {}
+    except (OSError, ValueError):
+        raise BackupError("Cannot read azure_config.json. Check that it contains valid JSON.") from None
+    if not isinstance(saved, dict) or any(not isinstance(value, str) for value in saved.values()):
+        raise BackupError("Azure configuration must contain text settings only.")
+    result = {}
+    for key, variable, default in (
+        ("connection_string", "AZURE_STORAGE_CONNECTION_STRING", ""),
+        ("container", "HONEYGATE_BACKUP_CONTAINER", "honeygate-backups"),
+        ("prefix", "HONEYGATE_BACKUP_PREFIX", "honeygate-local"),
+        ("mode", "HONEYGATE_BACKUP_MODE", ""),
+    ):
+        result[key] = os.environ.get(variable, saved.get(key, default)).strip()
+    return result
 
 
 class BackupError(RuntimeError):
@@ -9,29 +31,30 @@ class BackupError(RuntimeError):
 
 
 def enabled():
-    default = "azure" if os.environ.get("AZURE_STORAGE_CONNECTION_STRING") else "local"
-    mode = os.environ.get("HONEYGATE_BACKUP_MODE", default).lower()
+    config = settings()
+    mode = (config["mode"] or ("azure" if config["connection_string"] else "local")).lower()
     if mode not in {"local", "azure"}:
-        raise BackupError("HONEYGATE_BACKUP_MODE must be local or azure.")
+        raise BackupError("Backup mode must be local or azure.")
     return mode == "azure"
 
 
 def status():
     return {"mode": "azure" if enabled() else "local",
-            "configured": bool(os.environ.get("AZURE_STORAGE_CONNECTION_STRING"))}
+            "configured": bool(settings()["connection_string"])}
 
 
 def _blob(name):
-    connection = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+    config = settings()
+    connection = config["connection_string"]
     if not connection:
-        raise BackupError("Set AZURE_STORAGE_CONNECTION_STRING in the backend environment.")
-    prefix = os.environ.get("HONEYGATE_BACKUP_PREFIX", "honeygate-local")
+        raise BackupError("Add your connection string to azure_config.json or the backend environment.")
+    prefix = config["prefix"]
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", prefix):
         raise BackupError("Backup prefix must use 1-80 letters, digits, underscores or hyphens.")
     from azure.storage.blob import BlobClient
     return BlobClient.from_connection_string(
         connection,
-        container_name=os.environ.get("HONEYGATE_BACKUP_CONTAINER", "honeygate-backups"),
+        container_name=config["container"],
         blob_name=f"{prefix}/{name}",
         connection_timeout=10, read_timeout=30, retry_total=1,
     )

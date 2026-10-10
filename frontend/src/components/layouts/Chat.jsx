@@ -62,6 +62,7 @@ function Chat() {
             : "No final answer was returned. Check action history."),
           agentError: data.agent_error,
           helperError: data.helper_error,
+          titleError: data.title_error,
           suggestions: data.checkpoint_marks ?? [],
         },
       ]);
@@ -105,6 +106,7 @@ function Chat() {
               <p className="chat-message-text">{message.content}</p>
               {message.agentError && <p role="alert">Agent error: {message.agentError}</p>}
               {message.helperError && <p role="status">Description helper: {message.helperError}</p>}
+              {message.titleError && <p role="status">{message.titleError}</p>}
               {message.suggestions?.length > 0 && (
                 <details className="helper-suggestions">
                   <summary>Planned operations from reasoning</summary>

@@ -5,3 +5,4 @@ checkpoints/
 .venv/
 .env
 .env.*
+/azure_config.json

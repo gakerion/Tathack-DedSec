@@ -184,6 +184,20 @@ class AzureBackupTests(unittest.TestCase):
         history.sync_backup()
         self.assertIn(f"checkpoints/{action['checkpoint_id']}.json", self.store)
 
+    def test_titles_survive_azure_recovery(self):
+        task = history.start_task("A long original request for a new file")
+        history.set_task_title(task, "Create the requested file")
+        history.DATABASE.unlink()
+        group = history.groups()[0]
+        self.assertEqual(group["title"], "Create the requested file")
+        self.assertEqual(group["prompt"], "A long original request for a new file")
+
+    def test_old_azure_history_without_titles_still_loads(self):
+        prompt = "An original request from before short headings were added"
+        self.store["history/latest.json"] = json.dumps({"schema_version": 1,
+            "tasks": [{"task_id": 1, "prompt": prompt, "actions": []}]}).encode()
+        self.assertEqual(history.groups()[0]["title"], history.short_title(prompt))
+
     def test_failed_undo_outcome_upload_preserves_completed_undo(self):
         action = self.create()
         original = backup.upload_json
@@ -200,6 +214,45 @@ class AzureBackupTests(unittest.TestCase):
         self.assertEqual(history.all_actions()[0]["status"], "undone")
         history.sync_backup()
         history.require_safe_history()
+
+
+class SettingsTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.config = Path(directory.name) / "azure_config.json"
+        for change in (patch.object(backup, "CONFIG_FILE", self.config),
+                       patch.dict(os.environ, {}, clear=True)):
+            change.start()
+            self.addCleanup(change.stop)
+
+    def test_saved_settings_enable_azure_and_configure_client(self):
+        self.config.write_text(json.dumps({"connection_string": "test-only-secret",
+                                          "container": "honeygate", "prefix": "demo"}))
+        self.assertTrue(backup.enabled())
+        with patch("azure.storage.blob.BlobClient.from_connection_string") as factory:
+            backup._blob("history/latest.json")
+        self.assertEqual(factory.call_args.args[0], "test-only-secret")
+        self.assertEqual(factory.call_args.kwargs["container_name"], "honeygate")
+        self.assertEqual(factory.call_args.kwargs["blob_name"], "demo/history/latest.json")
+        self.assertNotIn("test-only-secret", str(backup.status()))
+
+    def test_blank_or_missing_config_keeps_local_mode(self):
+        self.assertFalse(backup.enabled())
+        self.config.write_text('{"connection_string":""}')
+        self.assertFalse(backup.enabled())
+
+    def test_environment_can_override_saved_settings(self):
+        self.config.write_text('{"connection_string":"test-only-secret"}')
+        with patch.dict(os.environ, {"HONEYGATE_BACKUP_MODE": "local"}):
+            self.assertFalse(backup.enabled())
+
+    def test_invalid_settings_do_not_leak_contents_or_fall_back(self):
+        for text in ('test-only-secret', '[]', '{"connection_string":123}'):
+            self.config.write_text(text)
+            with self.assertRaises(backup.BackupError) as error:
+                backup.enabled()
+            self.assertNotIn("test-only-secret", str(error.exception))
 
 
 if __name__ == "__main__":

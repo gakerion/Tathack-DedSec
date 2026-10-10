@@ -1,5 +1,6 @@
 """Local HoneyGate API. Run one worker to serialize agent tasks and undo."""
 from threading import Lock
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +10,16 @@ import action_history as history
 from azure_backup import BackupError
 from checkpoint_helper import run_ollama_test, undo_latest_action, restore_file_stage
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app):
+    # Keep durable backups, but start the visible history fresh on each launch.
+    saved = history.groups()
+    app.state.history_start_id = max((task["task_id"] for task in saved), default=0)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+app.state.history_start_id = 0
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -26,7 +36,19 @@ class RestoreRequest(BaseModel):
 @app.get("/checkpoints")
 def get_checkpoints():
     try:
-        return history.history_payload()
+        payload = history.history_payload()
+        payload["checkpoints"] = [
+            task for task in payload["checkpoints"]
+            if task["task_id"] > app.state.history_start_id
+        ]
+        payload["history_scope"] = "current_server_session"
+        payload["agent_busy"] = model_lock.locked()
+        if payload["agent_busy"]:
+            for task in payload["checkpoints"]:
+                for action in task["actions"]:
+                    action["restore_supported"] = False
+                    action["stage_restore_supported"] = False
+        return payload
     except BackupError as error:
         raise HTTPException(503, str(error))
 
@@ -60,6 +82,14 @@ def prompt(prompt: str = Form(...), file: UploadFile | None = File(None)):
 def restore_checkpoint(request: RestoreRequest):
     with model_lock:
         try:
+            current_actions = {
+                action["action_id"]
+                for task in history.groups()
+                if task["task_id"] > app.state.history_start_id
+                for action in task["actions"]
+            }
+            if request.action_id not in current_actions:
+                raise ValueError("This action belongs to an earlier server session.")
             if request.keep_stage:
                 return restore_file_stage(request.action_id)
             return undo_latest_action(request.action_id)

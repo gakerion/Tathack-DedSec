@@ -10,6 +10,15 @@ DATABASE = Path(__file__).with_name("honeygate-history.sqlite3")
 MODIFYING_OPERATIONS = {"create", "edit"}
 
 
+def short_title(prompt):
+    """Keep headings readable when model summarization is unavailable."""
+    text = " ".join(prompt.split())
+    title = " ".join(text.split()[:7])
+    if len(title) > 60:
+        title = title[:57].rstrip()
+    return title[:59].rstrip() + "…" if title != text else title
+
+
 @contextmanager
 def database():
     connection = sqlite3.connect(DATABASE, timeout=10)
@@ -20,7 +29,8 @@ def database():
         connection.executescript("""
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                prompt TEXT NOT NULL
+                prompt TEXT NOT NULL,
+                title TEXT
             );
 
             CREATE TABLE IF NOT EXISTS actions (
@@ -34,6 +44,15 @@ def database():
                 value TEXT NOT NULL
             );
         """)
+
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(tasks)")}
+        if "title" not in columns:
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                # Recheck after locking: another request may have migrated it.
+                columns = {row["name"] for row in connection.execute("PRAGMA table_info(tasks)")}
+                if "title" not in columns:
+                    connection.execute("ALTER TABLE tasks ADD COLUMN title TEXT")
 
         with connection:
             if not connection.execute("SELECT 1 FROM metadata WHERE key = 'initialized'").fetchone():
@@ -55,7 +74,11 @@ def _import_history(connection, saved):
         for task in saved["tasks"]:
             if type(task["task_id"]) is not int or not isinstance(task["prompt"], str):
                 raise ValueError("Invalid task")
-            connection.execute("INSERT INTO tasks (id, prompt) VALUES (?, ?)", (task["task_id"], task["prompt"]))
+            title = task.get("title")
+            if not isinstance(title, str) or not title.strip():
+                title = short_title(task["prompt"])
+            connection.execute("INSERT INTO tasks (id, prompt, title) VALUES (?, ?, ?)",
+                               (task["task_id"], task["prompt"], title))
             for action in task["actions"]:
                 if type(action["action_id"]) is not int or not isinstance(action["status"], str):
                     raise ValueError("Invalid action")
@@ -88,13 +111,22 @@ def backup_pending():
 def start_task(prompt):
     with database() as connection:
         cursor = connection.execute(
-            "INSERT INTO tasks (prompt) VALUES (?)",
-            (prompt,),
+            "INSERT INTO tasks (prompt, title) VALUES (?, ?)",
+            (prompt, short_title(prompt)),
         )
         task_id = cursor.lastrowid
         _mark_pending(connection)
     sync_backup()
     return task_id
+
+
+def set_task_title(task_id, title):
+    with database() as connection:
+        connection.execute("UPDATE tasks SET title = ? WHERE id = ?", (title, task_id))
+    # A cosmetic title must not block file operations if its cloud upload fails.
+    # Preserve any pending backup of actual action outcomes; the next sync includes titles.
+    if not backup_pending():
+        sync_backup()
 
 
 def begin_action(task_id, tool, operation):
@@ -153,7 +185,7 @@ def groups():
         if not connection.in_transaction:
             connection.execute("BEGIN")
         tasks = connection.execute(
-            "SELECT id, prompt FROM tasks ORDER BY id"
+            "SELECT id, prompt, title FROM tasks ORDER BY id"
         ).fetchall()
 
         rows = connection.execute(
@@ -164,6 +196,7 @@ def groups():
         task["id"]: {
             "task_id": task["id"],
             "prompt": task["prompt"],
+            "title": task["title"] or short_title(task["prompt"]),
             "actions": [],
         }
         for task in tasks
