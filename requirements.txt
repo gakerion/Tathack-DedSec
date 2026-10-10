@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+python-multipart
+ollama
+azure-storage-blob
+
+# Only needed by the separate legacy Git utilities.
+GitPython

@@ -1,0 +1,165 @@
+.checkpoint-sidebar {
+  width: 310px;
+  box-sizing: border-box;
+  min-width: 0;
+  flex-shrink: 0;
+  align-self: stretch;
+  margin: 24px 20px 24px 0;
+  padding: 24px 16px;
+  color-scheme: light;
+  scrollbar-gutter: stable;
+  border: 1px solid #ff2222;
+  border-bottom: 3px solid red;
+  border-right: 3px solid red;
+  background: #fff;
+  color: #171717;
+  overflow-y: auto;
+  text-align: left;
+  scrollbar-width: thin;
+  scrollbar-color: #ff2222 #fff;
+}
+
+.checkpoint-sidebar h2 {
+  margin: 0 0 24px;
+  color: #171717;
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.checkpoint-sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.prompt-folder {
+  min-width: 0;
+}
+
+.prompt-folder summary {
+  padding: 10px 6px;
+  color: #171717;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.prompt-folder summary::marker {
+  color: #ff2222;
+}
+
+.prompt-folder[open] > summary {
+  color: #db1010;
+}
+
+.commit-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.commit-list li {
+  margin: 0;
+}
+
+.commit-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  background: #ededed;
+  color: #666;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.commit-item:hover:not(:disabled) {
+  background: #dedede;
+  color: #171717;
+}
+
+.commit-item:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.commit-task {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commit-dot {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.commit-item:focus-visible,
+.prompt-folder summary:focus-visible {
+  outline: 2px solid #ff2222;
+  outline-offset: 2px;
+}
+
+.checkpoint-sidebar > p {
+  margin: 12px 0;
+  color: #555;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.checkpoint-sidebar > p[role="status"] {
+  padding: 10px;
+  border-left: 3px solid #ff2222;
+  background: #f6f6f6;
+}
+.action-card {
+  padding: 16px 14px;
+  border: 1px solid #ebebeb;
+  border-radius: 6px;
+  background: #f6f6f6;
+  overflow-wrap: anywhere;
+}
+.action-heading { display: flex; align-items: baseline; gap: 10px; line-height: 1.5; font-size: 14px; }
+.action-card p { margin: 10px 0 0; font-size: 13px; line-height: 1.6; color: #555; }
+
+.file-stages { min-width: 0; border: 1px solid #ddd; padding: 12px; margin-top: 12px; border-radius: 6px; }
+.file-stages > summary { overflow-wrap: anywhere; font-size: 14px; padding: 8px 2px; line-height: 1.6; }
+.file-stages small { display: block; margin-top: 4px; color: #666; font-weight: normal; font-size: 12px; }
+.stage-controls { display: grid; gap: 12px; margin: 16px 0; padding: 16px 0; border-top: 1px solid #eee; border-bottom: 1px solid #eee; }
+.stage-controls label { font-size: 13px; font-weight: 600; }
+.stage-controls select {
+  width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box;
+  padding: 10px 32px 10px 12px; font: inherit; font-size: 13px;
+  color: #171717; background-color: #fff; border: 1px solid #bbb; border-radius: 5px;
+  appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23db1010' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+  text-overflow: ellipsis;
+}
+.stage-controls select:hover:not(:disabled) { border-color: #ff2222; }
+.stage-controls select:focus-visible { outline: 2px solid #ff2222; outline-offset: 3px; }
+.stage-controls select:disabled { background-color: #f5f5f5; color: #777; cursor: not-allowed; }
+.stage-controls p { margin: 0; font-size: 12px; line-height: 1.6; color: #666; overflow-wrap: anywhere; }
+.stage-controls .revert-selection { color: #171717; font-weight: 600; }
+.stage-controls .commit-item { min-height: 44px; justify-content: center; text-align: center; padding: 12px; border: 1px solid #ff2222; border-radius: 5px; background: #fff; color: #db1010; font-weight: 600; }
+.stage-controls .commit-item:hover:not(:disabled) { background: #fff1f1; color: #b80000; }
+.stage-controls .commit-item:disabled { background: #f5f5f5; border-color: #ddd; color: #888; opacity: 1; }
+.stage-controls button:disabled { cursor: not-allowed; }
+
+@media (max-width: 700px) {
+  .checkpoint-sidebar { width: 270px; padding: 20px 12px; }
+}

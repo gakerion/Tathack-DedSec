@@ -1,0 +1,85 @@
+.how-to-use {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    overflow-y: auto;
+    font-family: "Inclusive Sans", sans-serif;
+    color: #171717;
+    scrollbar-width: none;
+}
+
+.how-to-use-card {
+    width: 100%;
+    max-width: 875px;
+    margin: 0 auto;
+    padding: clamp(15px, 2vw, 35px);
+    border: 1px solid #ff2222;
+    background: #fff;
+    text-align: left;
+    border-bottom: 5px solid red;
+}
+
+.how-to-use-section+.how-to-use-section {
+    margin-top: 30px;
+}
+
+.how-to-use-section h1,
+.how-to-use-section h2 {
+    margin: 0 0 18px;
+    color: #000;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.how-to-use-section p {
+    margin: 0 0 16px;
+    font-size: 18px;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+}
+
+.how-to-use-section strong {
+    font-weight: 700;
+}
+
+.how-to-use-section .how-to-use-quote {
+    margin-top: 20px;
+    margin-bottom: 0;
+    font-style: italic;
+}
+
+.how-to-use-colors {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    list-style: none;
+    margin: 18px 0 0;
+    padding: 0 0 0 16px;
+}
+
+.how-to-use-colors li {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 18px;
+    line-height: 1.5;
+}
+
+.how-to-use-dash {
+    flex-shrink: 0;
+    color: #ff2222;
+    font-weight: 700;
+}
+
+.importance-red {
+    color: #db1010;
+}
+
+.importance-yellow {
+    color: #996b00;
+}
+
+.importance-green {
+    color: #008c35;
+}

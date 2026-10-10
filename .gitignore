@@ -1,0 +1,8 @@
+workspace/
+honeygate-history.sqlite3*
+__pycache__/
+checkpoints/
+.venv/
+.env
+.env.*
+/azure_config.json
