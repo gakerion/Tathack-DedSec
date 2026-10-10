@@ -370,5 +370,107 @@ class BackendTests(unittest.TestCase):
         self.assertEqual((self.workspace / "note.txt").read_text(), "manual")
 
 
+
+    def staged_file(self, filename="game.py"):
+        content = ("import math\n\ndef jump():\n    return 1\n\n"
+                   "def update():\n    return jump() + 1\n\n"
+                   "if __name__ == '__main__':\n    print(update())\n")
+        result = hg.execute_tool("create_text_file", {"filename": filename, "content": content})
+        return content, result
+
+    def test_python_creation_has_real_function_checkpoints(self):
+        content, result = self.staged_file()
+        self.assertEqual(result["status"], "executed")
+        self.assertEqual([a["stage_title"] for a in result["actions"]],
+                         ["Create file and setup", "Add jump()", "Add update()", "Finish file and entry point"])
+        self.assertEqual((self.workspace / "game.py").read_text(), content)
+        self.assertEqual(len(list(self.storage.glob("*.json"))), 4)
+        jump = result["actions"][1]
+        restored = hg.restore_file_stage(jump["action_id"])
+        text = (self.workspace / "game.py").read_text()
+        self.assertIn("def jump():", text)
+        self.assertNotIn("def update():", text)
+        self.assertEqual(len(restored["undone_action_ids"]), 2)
+        self.assertTrue(history.history_payload()["checkpoints"][0]["actions"][0]["stage_restore_supported"])
+
+    def test_staged_model_result_is_flattened_into_actions(self):
+        code = "def a():\n    return 1\n\ndef b():\n    return 2\n"
+        with patch("ollama.chat", side_effect=[
+            response(calls=[create_call("code.py", code)]), response(content="Saved"),
+        ]):
+            packet = hg.run_ollama_test("Create functions a and b")
+        self.assertEqual(len(packet["actions"]), 3)
+        self.assertTrue(all("checkpoint_id" in action for action in packet["actions"]))
+        self.assertEqual(len(history.groups()), 1)
+
+    def test_stage_restore_leaves_other_files_untouched(self):
+        _, result = self.staged_file()
+        self.create("other.txt")
+        hg.restore_file_stage(result["actions"][1]["action_id"])
+        self.assertEqual((self.workspace / "other.txt").read_text(), "hello")
+        self.assertEqual(history.latest_modification()["target"], "other.txt")
+
+    def test_stage_restore_includes_later_tasks_for_same_file(self):
+        _, result = self.staged_file()
+        read = hg.execute_tool("read_text_file", {"filename": "game.py"})
+        hg.execute_tool("append_text_file", {"filename": "game.py", "content": "# later task\n",
+                                             "expected_sha256": read["sha256"]})
+        restored = hg.restore_file_stage(result["actions"][1]["action_id"])
+        self.assertEqual(len(restored["undone_action_ids"]), 3)
+        self.assertNotIn("later task", (self.workspace / "game.py").read_text())
+
+    def test_stage_restore_preflights_entire_chain(self):
+        content, result = self.staged_file()
+        checkpoint = self.storage / (result["actions"][2]["checkpoint_id"] + ".json")
+        record = json.loads(checkpoint.read_text())
+        record["files"][0]["sha256"] = "0" * 64
+        checkpoint.write_text(json.dumps(record))
+        with self.assertRaises(ValueError):
+            hg.restore_file_stage(result["actions"][0]["action_id"])
+        self.assertEqual((self.workspace / "game.py").read_text(), content)
+        self.assertTrue(all(a["status"] == "executed" for a in history.all_actions()))
+
+    def test_stage_restore_conflicts_and_http_contract(self):
+        _, result = self.staged_file()
+        client = TestClient(server.app)
+        selected = result["actions"][1]["action_id"]
+        response = client.post("/restore", json={"action_id": selected, "keep_stage": True})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(client.post("/restore", json={"action_id": selected, "keep_stage": True}).status_code, 409)
+        (self.workspace / "game.py").write_text("# manual change")
+        response = client.post("/restore", json={"action_id": result["actions"][0]["action_id"], "keep_stage": True})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual((self.workspace / "game.py").read_text(), "# manual change")
+
+    def test_python_methods_decorators_and_non_python_fallback(self):
+        import ast
+        code = ("class Bird:\n    @staticmethod\n    def jump():\n        return 1\n\n"
+                "    async def update(self):\n        return 2\n")
+        stages = hg.python_stages("bird.py", code)
+        self.assertEqual([title for title, _ in stages],
+                         ["Create file and setup", "Add Bird.jump()", "Add Bird.update()"])
+        for _, prefix in stages:
+            ast.parse(prefix)
+        self.assertEqual(stages[-1][1], code)
+        self.assertEqual(hg.python_stages("notes.txt", code), [])
+        self.assertEqual(hg.python_stages("broken.py", "def invalid("), [])
+
+    def test_stage_failure_stops_later_writes(self):
+        original = hg._write_checkpoint
+        count = 0
+        def write(path, checkpoint):
+            nonlocal count
+            count += 1
+            if count == 3:
+                raise OSError("disk full")
+            original(path, checkpoint)
+        with patch.object(hg, "_write_checkpoint", side_effect=write):
+            _, result = self.staged_file()
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(len(result["actions"]), 3)
+        self.assertIn("def jump", (self.workspace / "game.py").read_text())
+        self.assertNotIn("def update", (self.workspace / "game.py").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

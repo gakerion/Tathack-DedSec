@@ -16,6 +16,7 @@ export default function Commits() {
   const [restoring, setRestoring] = useState(false);
   const [message, setMessage] = useState("");
   const [historyError, setHistoryError] = useState("");
+  const [selectedStages, setSelectedStages] = useState({});
 
   useEffect(() => {
     let active = true;
@@ -42,7 +43,7 @@ export default function Commits() {
     };
   }, []);
 
-  async function undo(actionId) {
+  async function undo(actionId, keepStage = false) {
     if (restoring) return;
     setRestoring(true);
     setMessage("");
@@ -50,7 +51,7 @@ export default function Commits() {
       const response = await fetch(`${API}/restore`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action_id: actionId }),
+        body: JSON.stringify({ action_id: actionId, keep_stage: keepStage }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail ?? "Undo failed.");
@@ -66,7 +67,7 @@ export default function Commits() {
   return (
     <aside className="checkpoint-sidebar">
       <h2>Action history</h2>
-      <p>Undo changes from newest to oldest.</p>
+      <p>Expand a file to inspect its saved stages.</p>
       {loading && <p>Loading...</p>}
       {historyError && <p role="alert">{historyError}</p>}
       {!loading && groups.length === 0 && <p>No tasks yet.</p>}
@@ -75,28 +76,63 @@ export default function Commits() {
           <details className="prompt-folder" key={group.task_id} open>
             <summary>{group.prompt}</summary>
             {group.actions.length === 0 && <p>No tool actions recorded.</p>}
-            <ol className="commit-list">
-              {group.actions.map((action) => (
-                <li className="action-card" key={action.action_id}>
-                  <div className="action-heading">
-                    <span className="commit-dot" aria-hidden="true"
-                      style={{ backgroundColor: importanceColor(action.importance) }} />
-                    <strong>{action.operation ?? action.tool}{action.target ? `: ${action.target}` : ""}</strong>
-                  </div>
-                  <p>Status: {action.status}</p>
-                  {typeof action.importance === "number" && (
-                    <p>Importance: {action.importance.toFixed(3)}</p>
+            {Object.entries(group.actions.reduce((files, action) => {
+              const name = action.target || "Other actions";
+              (files[name] ??= []).push(action);
+              return files;
+            }, {})).map(([filename, actions]) => {
+              const stages = actions.filter((action) => action.checkpoint_id && action.state_changed);
+              const key = `${group.task_id}:${filename}`;
+              const selected = stages.find((stage) => stage.action_id === Number(selectedStages[key]));
+              return (
+                <details className="file-stages" key={filename} open>
+                  <summary>{filename} <small>({stages.length} saved stages)</small></summary>
+                  {stages.length > 0 && (
+                    <div className="stage-controls">
+                      <label htmlFor={`stage-${group.task_id}-${actions[0].action_id}`}>File version</label>
+                      <select id={`stage-${group.task_id}-${actions[0].action_id}`}
+                        value={selectedStages[key] ?? ""}
+                        onChange={(event) => setSelectedStages((previous) => ({ ...previous, [key]: event.target.value }))}>
+                        <option value="">Choose a saved stage</option>
+                        {stages.map((stage, index) => (
+                          <option key={stage.action_id} value={stage.action_id}
+                            disabled={!stage.stage_restore_supported}>
+                            {index + 1}. {stage.stage_title || stage.operation}
+                            {stage.is_current_stage ? " (current)" : stage.status === "undone" ? " (undone)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <p>Keep this stage and undo all later changes to this file, including later tasks.</p>
+                      <button type="button" className="commit-item"
+                        disabled={restoring || !selected?.stage_restore_supported}
+                        onClick={() => undo(selected.action_id, true)}>
+                        Restore to selected stage
+                      </button>
+                    </div>
                   )}
-                  {action.reason && <p>{action.reason}</p>}
-                  {action.restore_supported && (
-                    <button type="button" className="commit-item" disabled={restoring}
-                      onClick={() => undo(action.action_id)}>
-                      {restoring ? "Undoing..." : "Undo latest change"}
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ol>
+                  <ol className="commit-list">
+                    {actions.map((action) => (
+                      <li className="action-card" key={action.action_id}>
+                        <div className="action-heading">
+                          <span className="commit-dot" aria-hidden="true"
+                            style={{ backgroundColor: importanceColor(action.importance) }} />
+                          <strong>{action.stage_title || action.operation || action.tool}</strong>
+                        </div>
+                        <p>Status: {action.status}{action.is_current_stage ? " (current version)" : ""}</p>
+                        {typeof action.importance === "number" && <p>Importance: {action.importance.toFixed(3)}</p>}
+                        {action.reason && <p>{action.reason}</p>}
+                        {action.restore_supported && (
+                          <button type="button" className="commit-item" disabled={restoring}
+                            onClick={() => undo(action.action_id)}>
+                            {restoring ? "Undoing..." : "Undo latest change"}
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              );
+            })}
           </details>
         ))}
       </nav>

@@ -174,6 +174,10 @@ def history_payload():
     blocker = recovery_blocker(actions)
     latest = latest_modification(actions)
     latest_id = latest["action_id"] if latest else None
+    latest_by_file = {}
+    for action in sorted(actions, key=lambda item: item["action_id"]):
+        if action["status"] == "executed" and action.get("state_changed") and action.get("checkpoint_id"):
+            latest_by_file[action["target"]] = action["action_id"]
 
     for action in actions:
         # Only the newest applied modification can be undone.
@@ -182,6 +186,12 @@ def history_payload():
             and latest_id is not None
             and action["action_id"] == latest_id
         )
+        action["stage_restore_supported"] = (
+            blocker is None and action["status"] == "executed"
+            and bool(action.get("checkpoint_id")) and bool(action.get("state_changed"))
+            and action["action_id"] < latest_by_file.get(action.get("target"), 0)
+        )
+        action["is_current_stage"] = action["action_id"] == latest_by_file.get(action.get("target"))
 
     return {
         "checkpoints": result,

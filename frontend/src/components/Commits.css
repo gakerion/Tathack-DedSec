@@ -126,3 +126,12 @@
 }
 .action-heading { display: flex; align-items: center; gap: 8px; }
 .action-card p { margin: 6px 0; font-size: 13px; }
+
+.file-stages { min-width: 0; border: 1px solid #ddd; padding: 8px; }
+.file-stages > summary { overflow-wrap: anywhere; font-size: 14px; }
+.file-stages small { color: #666; font-weight: normal; }
+.stage-controls { display: grid; gap: 8px; margin: 10px 0; }
+.stage-controls label { font-size: 13px; font-weight: 600; }
+.stage-controls select { width: 100%; min-width: 0; padding: 8px; font: inherit; font-size: 13px; }
+.stage-controls p { margin: 0; font-size: 12px; line-height: 1.5; }
+.stage-controls button:disabled { cursor: not-allowed; }

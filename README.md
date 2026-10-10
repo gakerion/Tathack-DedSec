@@ -24,19 +24,29 @@ Open the Vite URL (normally http://localhost:5173).
 
 ## Supported actions
 
-Create new UTF-8 text files, read/list/search files, and edit a unique text match.
+Create new UTF-8 text files, read/list/search files, append a section, and edit a unique text match.
 Only plain filenames inside `workspace/` are accepted. Files are limited to 1 MiB;
 reads return at most 12,000 characters and report truncation. Reference attachments
 are limited to 12 KB and are not automatically saved.
 
 The main agent is instructed to split a task into small logical changes. The backend
-rejects batches and asks for one tool call per turn. Logical edit size still partly
-depends on the model. Overwrite, delete, move, and bulk replacement tools are disabled
+rejects batches and asks for one tool call per turn. New valid Python files containing functions/classes are saved in real stages:
+setup, each top-level function or class method, then remaining code/entry point.
+[file_stages.py](./file_stages.py) uses Python's AST parser and never executes generated code.
+Each write has its own verified checkpoint. Intermediate files may not yet be runnable.
+Invalid Python and other file types keep ordinary per-tool checkpoints; their logical
+edit size still partly depends on the model. Overwrite, delete, move, and bulk replacement tools are disabled
 for the create/edit MVP; their previous implementation remains in the source.
 
 Click **Undo latest change** to reverse a completed create/edit action. Repeat to
 reach an earlier point. Undo checks the current content and blocks if a file was
-changed manually or is missing. There is no redo operation.
+changed manually or is missing. Expand a filename and use **File version** to restore an earlier stage. This keeps
+the selected stage and undoes all later changes to that file, including changes from
+later tasks. Other files are unchanged; cross-file dependencies are not automatically
+repaired. All affected checkpoints are checked before restoration begins. An I/O failure
+during restoration can still leave a partially restored file and is reported in history.
+There is no redo operation. Existing single-checkpoint files cannot acquire historical
+function stages retroactively: generate a new file to see automatic function stages.
 
 ## Code and data flow
 
@@ -62,6 +72,7 @@ Exposed reasoning never executes tools or creates extra recovery points.
 - `GET /checkpoints`: task groups with `actions`, `history_persistent: true`, and
   `history_error`. Only the latest eligible action has `restore_supported: true`.
 - `POST /restore`: JSON body `{"action_id": 123}`. Conflicts return HTTP 409.
+  Add `"keep_stage": true` to restore the selected file stage instead of undoing one action.
   Git commit hashes are no longer accepted.
 
 History is stored in `honeygate-history.sqlite3`, snapshots in `checkpoints/`, and

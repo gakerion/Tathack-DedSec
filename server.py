@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import action_history as history
-from checkpoint_helper import run_ollama_test, undo_latest_action
+from checkpoint_helper import run_ollama_test, undo_latest_action, restore_file_stage
 
 app = FastAPI()
 app.add_middleware(
@@ -19,6 +19,7 @@ model_lock = Lock()
 
 class RestoreRequest(BaseModel):
     action_id: int = Field(gt=0, strict=True)
+    keep_stage: bool = False
 
 
 @app.get("/checkpoints")
@@ -52,6 +53,8 @@ def prompt(prompt: str = Form(...), file: UploadFile | None = File(None)):
 def restore_checkpoint(request: RestoreRequest):
     with model_lock:
         try:
+            if request.keep_stage:
+                return restore_file_stage(request.action_id)
             return undo_latest_action(request.action_id)
         except (ValueError, RuntimeError) as error:
             raise HTTPException(409, str(error))
