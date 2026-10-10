@@ -17,34 +17,52 @@ export default function Commits() {
   const [message, setMessage] = useState("");
   const [historyError, setHistoryError] = useState("");
   const [selectedStages, setSelectedStages] = useState({});
+  const [agentBusy, setAgentBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
+    let fetching = false;
+    let timer;
+    const controller = new AbortController();
     async function loadHistory() {
+      if (!active || fetching) return;
+      clearTimeout(timer);
+      fetching = true;
       try {
-        const response = await fetch(`${API}/checkpoints`);
+        const response = await fetch(`${API}/checkpoints`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
         if (!response.ok) throw new Error("Could not load action history.");
         const data = await response.json();
         if (active) {
-          setGroups(data.checkpoints);
+          setGroups(data.checkpoints.filter((group) => group.actions.length > 0));
           setHistoryError(data.history_error ?? "");
+          setAgentBusy(data.agent_busy ?? false);
         }
       } catch (error) {
         if (active) setHistoryError(error.message);
       } finally {
-        if (active) setLoading(false);
+        fetching = false;
+        if (active) {
+          setLoading(false);
+          // Schedule after completion so slow requests never overlap.
+          timer = setTimeout(loadHistory, 1000);
+        }
       }
     }
     loadHistory();
     window.addEventListener("honeygate:checkpoints-updated", loadHistory);
     return () => {
       active = false;
+      clearTimeout(timer);
+      controller.abort();
       window.removeEventListener("honeygate:checkpoints-updated", loadHistory);
     };
   }, []);
 
   async function undo(actionId, keepStage = false) {
-    if (restoring) return;
+    if (restoring || agentBusy) return;
     setRestoring(true);
     setMessage("");
     try {
@@ -56,6 +74,7 @@ export default function Commits() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail ?? "Undo failed.");
       setMessage(data.message);
+      setSelectedStages({});
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -68,14 +87,14 @@ export default function Commits() {
     <aside className="checkpoint-sidebar">
       <h2>Action history</h2>
       <p>Expand a file to inspect its saved stages.</p>
+      {agentBusy && <p role="status">Agent is working. History updates automatically; restore is available when it finishes.</p>}
       {loading && <p>Loading...</p>}
       {historyError && <p role="alert">{historyError}</p>}
-      {!loading && groups.length === 0 && <p>No tasks yet.</p>}
+      {!loading && groups.length === 0 && <p>No tool actions recorded yet.</p>}
       <nav aria-label="Action history">
         {groups.map((group) => (
           <details className="prompt-folder" key={group.task_id} open>
             <summary>{group.prompt}</summary>
-            {group.actions.length === 0 && <p>No tool actions recorded.</p>}
             {Object.entries(group.actions.reduce((files, action) => {
               const name = action.target || "Other actions";
               (files[name] ??= []).push(action);
@@ -83,30 +102,58 @@ export default function Commits() {
             }, {})).map(([filename, actions]) => {
               const stages = actions.filter((action) => action.checkpoint_id && action.state_changed);
               const key = `${group.task_id}:${filename}`;
-              const selected = stages.find((stage) => stage.action_id === Number(selectedStages[key]));
+              const latest = stages.find((stage) => stage.restore_supported);
+              const options = stages.map((stage, index) => ({
+                value: `stage:${stage.action_id}`,
+                actionId: stage.action_id,
+                keepStage: true,
+                enabled: stage.stage_restore_supported,
+                label: `Revert to stage ${index + 1}: ${stage.stage_title || stage.operation}${stage.is_current_stage ? " (current)" : stage.status === "undone" ? " (undone)" : ""}`,
+              }));
+              if (latest) options.unshift({
+                value: `undo:${latest.action_id}`,
+                actionId: latest.action_id,
+                keepStage: false,
+                enabled: true,
+                label: latest.operation === "delete" ? "Restore deleted file"
+                  : latest.operation === "create" ? "Revert creation (remove file)"
+                    : "Revert latest file change",
+              });
+              const selected = options.find((option) => option.value === selectedStages[key]);
               return (
                 <details className="file-stages" key={filename} open>
-                  <summary>{filename} <small>({stages.length} saved stages)</small></summary>
+                  <summary>{filename} <small>{stages.length} saved stages</small></summary>
                   {stages.length > 0 && (
                     <div className="stage-controls">
-                      <label htmlFor={`stage-${group.task_id}-${actions[0].action_id}`}>File version</label>
+                      <label htmlFor={`stage-${group.task_id}-${actions[0].action_id}`}>Revert options</label>
                       <select id={`stage-${group.task_id}-${actions[0].action_id}`}
-                        value={selectedStages[key] ?? ""}
+                        aria-describedby={`revert-help-${group.task_id}-${actions[0].action_id}`}
+                        value={selected?.value ?? ""}
+                        disabled={restoring || agentBusy}
                         onChange={(event) => setSelectedStages((previous) => ({ ...previous, [key]: event.target.value }))}>
-                        <option value="">Choose a saved stage</option>
-                        {stages.map((stage, index) => (
-                          <option key={stage.action_id} value={stage.action_id}
-                            disabled={!stage.stage_restore_supported}>
-                            {index + 1}. {stage.stage_title || stage.operation}
-                            {stage.is_current_stage ? " (current)" : stage.status === "undone" ? " (undone)" : ""}
-                          </option>
-                        ))}
+                        <option value="">Choose a revert option</option>
+                        {latest && <optgroup label="Latest change">
+                          {options.filter((option) => !option.keepStage).map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </optgroup>}
+                        <optgroup label="Saved stages">
+                          {options.filter((option) => option.keepStage).map((option) => (
+                            <option key={option.value} value={option.value} disabled={!option.enabled}>
+                              {option.label.replace("Revert to stage ", "Stage ")}
+                            </option>
+                          ))}
+                        </optgroup>
                       </select>
-                      <p>Keep this stage and undo all later changes to this file, including later tasks.</p>
+                      {selected && <p className="revert-selection">{selected.label}</p>}
+                      <p id={`revert-help-${group.task_id}-${actions[0].action_id}`}>{selected?.keepStage
+                        ? "Keep this stage and undo all later changes to this file, including later tasks."
+                        : selected ? selected.label + "."
+                          : "Select a change to preview it. Nothing changes until you apply."}</p>
                       <button type="button" className="commit-item"
-                        disabled={restoring || !selected?.stage_restore_supported}
-                        onClick={() => undo(selected.action_id, true)}>
-                        Restore to selected stage
+                        disabled={restoring || agentBusy || !selected?.enabled}
+                        onClick={() => undo(selected.actionId, selected.keepStage)}>
+                        {restoring ? "Reverting..." : "Apply selected revert"}
                       </button>
                     </div>
                   )}
@@ -121,12 +168,6 @@ export default function Commits() {
                         <p>Status: {action.status}{action.is_current_stage ? " (current version)" : ""}</p>
                         {typeof action.importance === "number" && <p>Importance: {action.importance.toFixed(3)}</p>}
                         {action.reason && <p>{action.reason}</p>}
-                        {action.restore_supported && (
-                          <button type="button" className="commit-item" disabled={restoring}
-                            onClick={() => undo(action.action_id)}>
-                            {restoring ? "Undoing..." : "Undo latest change"}
-                          </button>
-                        )}
                       </li>
                     ))}
                   </ol>
