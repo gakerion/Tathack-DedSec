@@ -9,11 +9,191 @@ body {
   margin: 0;
   width: 100%;
   height: 98%;
-  border: 3px solid #DB1010;
+  border: 2px solid #DB1010;
+  border-width: 2px 4px 4px 2px;
   font-family: "Inclusive Sans", sans-serif;
   background: #f6f6f6;
   color: #171717;
 }
+
+/* Pop-up; @Darshan */
+/* Modal Backdrop Overlay */
+.popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(240, 240, 240, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+/* FIXED CONTAINER: Height tailored specifically for Slide 3 length */
+.popup-card {
+  background-color: #ffffff;
+  border: 2px solid #e50914; /* Red border matching design */
+  width: 500px;
+  height: 440px; /* Fixed height keeps button/footer locked in place on all slides */
+  max-width: 92vw;
+  max-height: 92vh;
+  padding: 24px 28px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #111111;
+  position: relative;
+}
+
+/* Header Slot */
+.popup-header {
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.popup-header h2 {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 800;
+  color: #000000;
+  letter-spacing: -0.3px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.popup-close-x {
+  background: transparent;
+  border: none;
+  color: #e50914;
+  font-weight: 900;
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+/* Scrollable / Fixed Content Area */
+.popup-body {
+  flex: 1; /* Takes up remaining vertical space between header & footer */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.popup-text p {
+  margin-top: 0;
+  margin-bottom: 14px;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: #1a1a1a;
+  text-align: left;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Red Hashtag Tagline */
+.popup-hashtag {
+  color: #e50914 !important;
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-top: 6px;
+}
+
+/* Image Container */
+.popup-image-wrapper {
+  margin-top: auto;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.popup-image {
+  width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  border: 1px solid #e50914;
+  border-radius: 2px;
+}
+
+/* Footer Slot: Absolute Bottom Position */
+.popup-footer {
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  margin-top: 10px;
+}
+
+/* Centered Red Pagination Squares */
+.popup-pagination {
+  display: flex;
+  gap: 6px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.pagination-square {
+  width: 12px;
+  height: 12px;
+  background-color: #e50914;
+  opacity: 0.25;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.pagination-square.active {
+  opacity: 1;
+}
+
+/* Red NEXT Button */
+.popup-next-btn {
+  margin-left: auto;
+  background-color: #e50914;
+  color: #ffffff;
+  border: none;
+  padding: 8px 22px;
+  font-weight: 800;
+  font-size: 0.85rem;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  border-radius: 1px;
+  transition: background-color 0.15s ease-in-out;
+}
+
+.popup-next-btn:hover {
+  background-color: #b80710;
+}
+
+/* Scrollbar; @Darshan */
+::-webkit-scrollbar {
+  width: 2px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb {
+  background: #DB1010;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a40e0e;
+}
+
+
 
 button,
 input,

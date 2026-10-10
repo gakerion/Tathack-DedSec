@@ -180,8 +180,30 @@
 
 .chat-input-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 14px;
+}
+
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  height: 90px;
+  padding: 4px 8px;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: #444;
+  font: inherit;
+  font-size: 20px;
+  line-height: 1.5;
+  scrollbar-width: thin;
+  scrollbar-color: #ff2222 #fff;
+}
+
+.chat-input::placeholder {
+  color: #555;
 }
 
 .chat-chevron {
@@ -192,21 +214,7 @@
   line-height: 1;
 }
 
-.chat-input {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: #444;
-  font: inherit;
-  font-size: 22px;
-}
 
-.chat-input::placeholder {
-  color: #555;
-}
 
 .chat-file-button {
   position: relative;
